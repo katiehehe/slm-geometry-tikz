@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/
+data/*.jsonl
+.DS_Store
+*.pdf

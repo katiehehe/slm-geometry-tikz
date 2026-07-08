@@ -1,0 +1,17 @@
+[project]
+name = "slm-geometry-tikz"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "accelerate>=1.14.0",
+    "datasets>=5.0.0",
+    "numpy>=2.5.1",
+    "peft>=0.19.1",
+    "pillow>=12.3.0",
+    "pymupdf>=1.28.0",
+    "torch>=2.12.1",
+    "transformers>=5.13.0",
+    "trl>=1.7.1",
+]
