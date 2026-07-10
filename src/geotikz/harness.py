@@ -52,17 +52,22 @@ def evaluate_one(
 
     if has_tikz:
         cr = tex.compile_tikz(pred_tikz)
-        compiles, reason = cr.ok, cr.reason
-        if compiles and render and cr.pdf_path:
-            gt = tex.compile_tikz(gt_tikz)
-            if gt.ok and gt.pdf_path:
+        try:
+            compiles, reason = cr.ok, cr.reason
+            if compiles and render and cr.pdf_path:
+                gt = tex.compile_tikz(gt_tikz)
                 try:
-                    pred_img = tex.render_pdf(cr.pdf_path)
-                    gt_img = tex.render_pdf(gt.pdf_path)
-                    ssim_v = metrics.ssim(pred_img, gt_img)
-                    mse_v = metrics.mse(pred_img, gt_img)
+                    if gt.ok and gt.pdf_path:
+                        pred_img = tex.render_pdf(cr.pdf_path)
+                        gt_img = tex.render_pdf(gt.pdf_path)
+                        ssim_v = metrics.ssim(pred_img, gt_img)
+                        mse_v = metrics.mse(pred_img, gt_img)
                 except Exception:  # noqa: BLE001 - render is best-effort
                     pass
+                finally:
+                    gt.cleanup()
+        finally:
+            cr.cleanup()  # never leak the compile tempdir (fills disk over a run)
 
     cm = metrics.coord_match(pred_tikz or "", gt_points, atol=atol)
     passed = bool(figure_only and compiles and cm["all_correct"])

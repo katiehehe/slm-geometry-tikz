@@ -1,8 +1,12 @@
 """Run a model over a dataset and score outputs against the Behavior Spec.
 
-Usage:
+Local model (evaluate your fine-tuned adapter):
   uv run python scripts/evaluate.py --data data/smoke.jsonl --n 8 \
       --model HuggingFaceTB/SmolLM2-135M-Instruct --tag base --out outputs/eval_base.json
+
+Gateway baseline (a big hosted model via the OpenAI-compatible gateway):
+  uv run python scripts/evaluate.py --data data/eval.jsonl --n 20 --gateway \
+      --model openai-group/gpt-4o --tag gpt4o --out outputs/eval_gpt4o.json
 """
 
 from __future__ import annotations
@@ -32,14 +36,23 @@ def main() -> None:
     ap.add_argument("--out", type=str, default="outputs/eval.json")
     ap.add_argument("--judge", action="store_true")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--gateway", action="store_true",
+                    help="use a hosted OpenAI-compatible model instead of a local one")
     args = ap.parse_args()
 
     rows = load_jsonl(args.data, args.n)
-    model, tok, device = infer.load_model(args.model, args.adapter)
+    if args.gateway:
+        print(f"gateway inference: model={args.model}")
+        model = tok = device = None
+    else:
+        model, tok, device = infer.load_model(args.model, args.adapter)
 
     results = []
     for ex in rows:
-        out = infer.generate(model, tok, device, ex["description"])
+        if args.gateway:
+            out = infer.generate_via_gateway(ex["description"], args.model)
+        else:
+            out = infer.generate(model, tok, device, ex["description"])
         r = harness.evaluate_one(
             ex_id=ex["id"],
             description=ex["description"],
