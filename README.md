@@ -12,6 +12,7 @@ them.
 
 **Start here:**
 
+- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — short narrative demo (story arc + images).
 - [`WRITEUP.md`](WRITEUP.md) — the full evidence-first narrative (the brainlift).
 - [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md) — the one-sentence falsifiable gate.
 - [`SUBMISSION.md`](SUBMISSION.md) — the 5-artifact submission checklist + remaining actions.

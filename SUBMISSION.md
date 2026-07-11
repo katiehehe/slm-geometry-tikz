@@ -11,7 +11,7 @@ artifacts (see the per-claim table in [`WRITEUP.md`](WRITEUP.md#appendix--reprod
 | 1 | **Dataset, published** | ✅ built & verified · ⏳ needs HF token to push | `data/*.jsonl`, card `cards/dataset_card.md`, `scripts/publish_hf.py` |
 | 2 | **Model on HF Hub + running demo** | ✅ adapters + demo run locally · ⏳ needs HF token to push | `outputs/qwen3-*`, `scripts/demo.py`, `scripts/demo_web.py`, card `cards/model_card.md` |
 | 3 | **Eval harness + results table (base vs tuned)** | ✅ done | `src/geotikz/harness.py`, `outputs/eval_*.json`, tables below |
-| 4 | **Brainlift (thesis + did data→behavior hold, w/ evidence)** | ✅ done | `WRITEUP.md`, `BEHAVIOR_SPEC.md`, `REVIEW_NOTES.md` |
+| 4 | **Brainlift (thesis + did data→behavior hold, w/ evidence)** | ✅ done | [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) (short), `WRITEUP.md`, `BEHAVIOR_SPEC.md`, `REVIEW_NOTES.md` |
 | 5 | **3–5 min demo video** | ⏳ needs recording | script: [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md) |
 
 **Legend:** ✅ complete · ⏳ needs a user action (HF token / recording). Nothing is blocked
@@ -42,10 +42,10 @@ on further engineering.
 ## 2. Model on HF Hub + running demo
 
 - **Adapters (LoRA, ready to upload):** `qwen3-pgf-geotikz` (v2 0.6B — the headline
-  specialist), `qwen3-geotikz` (v1 0.6B), `qwen3-illustrator` (1.7B AIME illustrator) are
-  downloaded under `outputs/`. `qwen3-1.7b-geotikz` and `qwen3-illustrator-4b` (in progress)
-  live on the Modal Volume — the publish script prints the `modal volume get` command to
-  fetch them first. Card: `cards/model_card.md`.
+  specialist), `qwen3-geotikz` (v1 0.6B), `qwen3-illustrator` (1.7B AIME illustrator), and
+  `qwen3-illustrator-4b` / `qwen3-illustrator-4b-v2` (promoted in the copilot) live under
+  `outputs/` or on the Modal Volume — the publish script prints the `modal volume get`
+  command to fetch them. Card: `cards/model_card.md`.
 - **Running demo (works now, locally):**
   - CLI: `uv run python scripts/demo.py "<scene>"` → rendered PNG + copyable TikZ.
   - Web: `uv run python scripts/demo_web.py` → Gradio UI (textbox → figure + TikZ).
@@ -99,6 +99,7 @@ Reproduce any row: `outputs/eval_*.json`, `outputs/*/coverage_stats.json`,
 
 ## 4. Brainlift
 
+- **Start here:** [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — short narrative + images for graders.
 - **`WRITEUP.md`** — the full evidence-first narrative: thesis + the representation-pivot
   insight, the 12-model litmus (with the 90%/95% reliability nuance), eval-built-before-
   training, v1 → 1.7B → v2 tables, error analysis → the pivot, the "useful" positioning
@@ -135,6 +136,3 @@ Reproduce any row: `outputs/eval_*.json`, `outputs/*/coverage_stats.json`,
    usage snippet (the `<user>/...` placeholder) if you want them clickable.
 
 2. **Record the 3–5 min video** following `VIDEO_SCRIPT.md`.
-
-3. *(Optional)* **Drop in the 4B illustrator number** once the parallel run finishes: update
-   the `[4B AIME faithful: __%]` placeholder in `WRITEUP.md` §10 and the model card row.

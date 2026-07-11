@@ -770,6 +770,16 @@ _ENTER_JS = """() => {
       if (btn) btn.click();
     }
   }, true);
+  // Iframe "Apply board edits" -> click the Gradio Apply button (JS then pulls TikZ).
+  if (!window.__geoBoardApplyWired) {
+    window.__geoBoardApplyWired = true;
+    window.addEventListener('message', (e) => {
+      if (!e.data || e.data.type !== 'geotikz-click-apply') return;
+      const btn = document.querySelector('#apply-board-btn button')
+        || document.querySelector('#apply-board-btn');
+      if (btn) btn.click();
+    });
+  }
 }"""
 
 _INTRO_MD = (
@@ -901,6 +911,180 @@ def _free_points(tikz: str) -> set[str]:
     return free
 
 
+_PT = r"([A-Za-z]\w*)"
+# Center-kind aliases used by tkz-euclide / specialist prompts.
+_CENTER_KIND = {
+    "circum": "circumcenter", "circumcenter": "circumcenter",
+    "in": "incenter", "incenter": "incenter",
+    "ortho": "orthocenter", "orthocenter": "orthocenter",
+    "centroid": "centroid", "gravity": "centroid",
+}
+
+
+def _drawn_labeled_names(tikz: str) -> set[str]:
+    """Points that are explicitly drawn or labeled (exclude invisible helpers)."""
+    names: set[str] = set()
+    for pat in (r"\\tkzDrawPoints\(([^)]*)\)",
+                r"\\tkzLabelPoints(?:\[[^\]]*\])?\(([^)]*)\)",
+                r"\\tkzDrawPolygon\(([^)]*)\)",
+                r"\\fill[^;]*\(\s*([A-Za-z]\w*)\s*\)"):
+        for m in re.finditer(pat, tikz):
+            body = m.group(1)
+            for n in re.findall(r"[A-Za-z]\w*", body):
+                names.add(n)
+    return names
+
+
+def _parse_constraints(tikz: str) -> dict[str, dict]:
+    """Infer geometric constraints for derived points from TikZ macros / calc.
+
+    Returns ``{name: {type, parents, ...}}``. Unknown / unparseable constructions
+    are omitted (those points stay free-drag on the board). Additive only.
+    """
+    out: dict[str, dict] = {}
+    helpers: dict[str, dict] = {}  # intermediate GetPoint names (e.g. bisector ray)
+
+    def _set(name: str, c: dict, *, helper: bool = False) -> None:
+        if not name or name in out or name in helpers:
+            return
+        (helpers if helper else out)[name] = c
+
+    # --- tkzDefTriangleCenter[kind](A,B,C)\tkzGetPoint{N} ---
+    for m in re.finditer(
+        rf"\\tkzDefTriangleCenter\[\s*(\w+)\s*\]\s*\(\s*{_PT}\s*,\s*{_PT}\s*,\s*{_PT}\s*\)"
+        rf"\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        kind = _CENTER_KIND.get(m.group(1).lower())
+        if kind:
+            _set(m.group(5), {"type": kind, "parents": [m.group(2), m.group(3), m.group(4)]})
+
+    # --- bare \\tkzDefCircumCenter / InCenter / OrthoCenter / Centroid ---
+    for macro, kind in (
+        ("CircumCenter", "circumcenter"), ("InCenter", "incenter"),
+        ("OrthoCenter", "orthocenter"), ("Centroid", "centroid"),
+        ("GravityCenter", "centroid"),
+    ):
+        for m in re.finditer(
+            rf"\\tkzDef{macro}\s*\(\s*{_PT}\s*,\s*{_PT}\s*,\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+            tikz,
+        ):
+            _set(m.group(4), {"type": kind, "parents": [m.group(1), m.group(2), m.group(3)]})
+
+    # --- midpoint ---
+    for m in re.finditer(
+        rf"\\tkzDefMidPoint\s*\(\s*{_PT}\s*,\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}", tikz
+    ):
+        _set(m.group(3), {"type": "midpoint", "parents": [m.group(1), m.group(2)]})
+
+    # --- projection / foot ---
+    for m in re.finditer(
+        rf"\\tkzDefPointBy\[\s*projection\s*=\s*onto\s+{_PT}\s*--\s*{_PT}\s*\]\s*"
+        rf"\(\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        # foot of P onto A--B  -> parents [P, A, B]
+        _set(m.group(4), {"type": "foot", "parents": [m.group(3), m.group(1), m.group(2)]})
+
+    # --- reflection over a line ---
+    for m in re.finditer(
+        rf"\\tkzDefPointBy\[\s*reflection\s*=\s*over\s+{_PT}\s*--\s*{_PT}\s*\]\s*"
+        rf"\(\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        _set(m.group(4), {"type": "reflection", "parents": [m.group(3), m.group(1), m.group(2)]})
+
+    # --- point reflection (symmetry through a center) ---
+    for m in re.finditer(
+        rf"\\tkzDefPointBy\[\s*symmetry\s*=\s*center\s+{_PT}\s*\]\s*"
+        rf"\(\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        _set(m.group(3), {"type": "point_reflection", "parents": [m.group(2), m.group(1)]})
+
+    # --- rotation ---
+    for m in re.finditer(
+        rf"\\tkzDefPointBy\[\s*rotation\s*=\s*center\s+{_PT}\s+angle\s+(-?[\d.]+)\s*\]\s*"
+        rf"\(\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        _set(m.group(4), {
+            "type": "rotation",
+            "parents": [m.group(3), m.group(1)],  # [src, center]
+            "angle": float(m.group(2)),
+        })
+
+    # --- translation ---
+    for m in re.finditer(
+        rf"\\tkzDefPointBy\[\s*translation\s*=\s*from\s+{_PT}\s+to\s+{_PT}\s*\]\s*"
+        rf"\(\s*{_PT}\s*\)\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        # image of P translated by (to - from) -> parents [P, from, to]
+        _set(m.group(4), {
+            "type": "translation",
+            "parents": [m.group(3), m.group(1), m.group(2)],
+        })
+
+    # --- angle bisector ray helper: DefLine[bisector](B,A,C)\tkzGetPoint{ba} ---
+    for m in re.finditer(
+        rf"\\tkzDefLine\[\s*bisector\s*\]\s*\(\s*{_PT}\s*,\s*{_PT}\s*,\s*{_PT}\s*\)"
+        rf"\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        _set(m.group(4), {
+            "type": "bisector_ray",
+            "parents": [m.group(1), m.group(2), m.group(3)],  # B,A,C with apex A
+        }, helper=True)
+
+    # --- line-line intersection ---
+    for m in re.finditer(
+        rf"\\tkzInterLL\s*\(\s*{_PT}\s*,\s*{_PT}\s*\)\s*\(\s*{_PT}\s*,\s*{_PT}\s*\)"
+        rf"\s*\\tkzGetPoint\{{{_PT}\}}",
+        tikz,
+    ):
+        a, b, c, d, name = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        # Promote angle-bisector ∩ side into a dedicated constraint when possible.
+        for (p, q), other in (((a, b), (c, d)), ((c, d), (a, b))):
+            h = helpers.get(q) or helpers.get(p)
+            apex = None
+            if helpers.get(q) and helpers[q]["type"] == "bisector_ray":
+                apex = p  # line is (apex, ray_pt)
+                ray = helpers[q]
+            elif helpers.get(p) and helpers[p]["type"] == "bisector_ray":
+                apex = q
+                ray = helpers[p]
+            else:
+                continue
+            if apex and apex == ray["parents"][1]:  # apex matches DefLine middle arg
+                _set(name, {
+                    "type": "bisector_meet",
+                    "parents": ray["parents"] + [other[0], other[1]],  # B,A,C,P,Q
+                })
+                break
+        else:
+            _set(name, {"type": "intersection", "parents": [a, b, c, d]})
+
+    # --- PGF calc: midpoint ($(A)!0.5!(B)$) / partway / projection ($(A)!(P)!(B)$) ---
+    for m in re.finditer(
+        rf"\\coordinate\s*\(\s*{_PT}\s*\)\s*at\s*\(\s*\$\s*\(\s*{_PT}\s*\)"
+        rf"\s*!\s*([^!]+?)\s*!\s*\(\s*{_PT}\s*\)\s*\$\s*\)",
+        tikz,
+    ):
+        name, left, mid, right = m.group(1), m.group(2), m.group(3).strip(), m.group(4)
+        if name in out:
+            continue
+        mid_bare = mid.strip("() \t")
+        if re.fullmatch(r"0\.5|1/2", mid_bare):
+            _set(name, {"type": "midpoint", "parents": [left, right]})
+        elif re.fullmatch(r"-?[\d.]+", mid_bare):
+            _set(name, {"type": "partway", "parents": [left, right], "t": float(mid_bare)})
+        elif re.fullmatch(r"[A-Za-z]\w*", mid_bare):
+            _set(name, {"type": "foot", "parents": [mid_bare, left, right]})
+
+    return out, set(helpers)
+
+
 def _parse_segments(tikz: str, pts: dict) -> list[list[str]]:
     segs: list[list[str]] = []
 
@@ -955,7 +1139,9 @@ def _parse_circles(tikz: str, pts: dict) -> list[dict]:
 
 def _figure_spec(tikz: str, timeout: int = 45) -> dict | None:
     """Structured, interactive-ready spec from a TikZ figure. Coords come from
-    literal defs first, then a single compile-extract for any derived points."""
+    literal defs first, then a single compile-extract for any derived points.
+    Derived points also carry constraint metadata when the TikZ construction is
+    recognizable, so the JSXGraph board can re-solve them on drag."""
     try:
         tikz = metrics.extract_tikz(tikz or "") or (tikz or "")
         if not tikz.strip():
@@ -975,9 +1161,21 @@ def _figure_spec(tikz: str, timeout: int = 45) -> dict | None:
         if not coords:
             return None
         free = _free_points(tikz)
+        constraints, helper_names = _parse_constraints(tikz)
+        visible = _drawn_labeled_names(tikz)
+        points = []
+        for n, (x, y) in coords.items():
+            # Drop invisible bisector-ray helpers (e.g. Dbl) unless drawn/labeled.
+            if n in helper_names and n not in visible and n not in constraints:
+                continue
+            is_free = n in free and n not in constraints
+            entry: dict = {"name": n, "x": round(x, 4), "y": round(y, 4), "free": is_free}
+            if n in constraints:
+                entry["constraint"] = constraints[n]
+                entry["free"] = False
+            points.append(entry)
         return {
-            "points": [{"name": n, "x": round(x, 4), "y": round(y, 4), "free": n in free}
-                       for n, (x, y) in coords.items()],
+            "points": points,
             "segments": _parse_segments(tikz, coords),
             "circles": _parse_circles(tikz, coords),
         }
@@ -992,8 +1190,34 @@ _JSX_CDN_CSS = "https://cdn.jsdelivr.net/npm/jsxgraph/distrib/jsxgraph.css"
 _EMPTY_BOARD = (
     "<div style='padding:14px;color:#666;font-family:system-ui,sans-serif;font-size:14px'>"
     "Generate a figure and it becomes <b>editable</b> here — drag points, resize circles, "
-    "add points, then export TikZ/SVG.</div>"
+    "add points, then <b>Apply board edits</b> to push changes into the chat figure / TikZ, "
+    "or export TikZ/SVG.</div>"
 )
+
+# Gradio button JS: request current board TikZ from the sandboxed iframe via postMessage,
+# then hand it to the Python apply handler as the first input. Gradio 6 awaits Promises.
+_APPLY_BOARD_JS = """(tikz, history, current_tikz, current_png, pending) => {
+  return new Promise((resolve) => {
+    const pass = (t) => resolve([t || '', history, current_tikz, current_png, pending]);
+    const iframe = document.querySelector('iframe[title="interactive geometry editor"]');
+    if (!iframe || !iframe.contentWindow) { pass(''); return; }
+    let done = false;
+    const finish = (t) => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('message', handler);
+      pass(t);
+    };
+    const handler = (e) => {
+      if (!e.data || e.data.type !== 'geotikz-tikz') return;
+      finish(e.data.tikz || '');
+    };
+    window.addEventListener('message', handler);
+    try { iframe.contentWindow.postMessage({type: 'geotikz-request-tikz'}, '*'); }
+    catch (err) { finish(''); return; }
+    setTimeout(() => finish(''), 3000);
+  });
+}"""
 
 _BOARD_DOC = r"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="__CSS__">
@@ -1009,10 +1233,11 @@ _BOARD_DOC = r"""<!DOCTYPE html><html><head><meta charset="utf-8">
 </style></head><body>
 <div id="bar">
  <button id="addpt">+ point</button>
+ <button id="apply" style="background:#ecfdf5;border-color:#6ee7b7;font-weight:600">Apply board edits</button>
  <button id="tikz">export TikZ</button>
  <button id="dltikz">download .tex</button>
  <button id="dlsvg">download SVG</button>
- <span id="hint">drag points · drag a circle's ring to resize · double-click a point to rename</span>
+ <span id="hint">magenta = free · red = constrained (re-solves) · drag free points · Apply pushes into chat figure</span>
 </div>
 <div id="jxg" class="jxgbox"></div>
 <textarea id="out" readonly></textarea>
@@ -1036,9 +1261,109 @@ function run(){
   var P={};
   function rename(pt){ var t=Date.now(); if(pt._t && t-pt._t<340){ var nn=prompt('Rename point '+pt.name+' to:',pt.name);
     if(nn){ try{pt.setName(nn);}catch(e){pt.setAttribute({name:nn});} board.update(); } } pt._t=t; }
-  pts.forEach(function(p){ P[p.name]=board.create('point',[p.x,p.y],{name:p.name,size:3,
-    strokeColor:p.free?'#c026d3':'#e11d48',fillColor:p.free?'#c026d3':'#e11d48',label:{fontSize:15,offset:[7,7]}});
-    P[p.name].on('up',function(){rename(P[p.name]);}); });
+  function xy(a){ return [a.X(), a.Y()]; }
+  function dist(a,b){ var dx=a.X()-b.X(), dy=a.Y()-b.Y(); return Math.sqrt(dx*dx+dy*dy); }
+  function midXY(a,b){ return [(a.X()+b.X())/2,(a.Y()+b.Y())/2]; }
+  function partwayXY(a,b,t){ return [a.X()+t*(b.X()-a.X()), a.Y()+t*(b.Y()-a.Y())]; }
+  function footXY(p,a,b){ var ax=a.X(),ay=a.Y(),dx=b.X()-ax,dy=b.Y()-ay,d=dx*dx+dy*dy;
+    if(d<1e-12) return [ax,ay]; var t=((p.X()-ax)*dx+(p.Y()-ay)*dy)/d; return [ax+t*dx,ay+t*dy]; }
+  function reflectXY(p,a,b){ var f=footXY(p,a,b); return [2*f[0]-p.X(), 2*f[1]-p.Y()]; }
+  function pointReflectXY(p,m){ return [2*m.X()-p.X(), 2*m.Y()-p.Y()]; }
+  function rotateXY(p,c,deg){ var r=deg*Math.PI/180, cos=Math.cos(r), sin=Math.sin(r);
+    var dx=p.X()-c.X(), dy=p.Y()-c.Y(); return [c.X()+dx*cos-dy*sin, c.Y()+dx*sin+dy*cos]; }
+  function translateXY(p,frm,to){ return [p.X()+(to.X()-frm.X()), p.Y()+(to.Y()-frm.Y())]; }
+  function lineIntersectXY(a,b,c,d){
+    var x1=a.X(),y1=a.Y(),x2=b.X(),y2=b.Y(),x3=c.X(),y3=c.Y(),x4=d.X(),y4=d.Y();
+    var den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4); if(Math.abs(den)<1e-12) return [(x1+x2)/2,(y1+y2)/2];
+    var t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
+    return [x1+t*(x2-x1), y1+t*(y2-y1)]; }
+  function circumXY(a,b,c){
+    var ax=a.X(),ay=a.Y(),bx=b.X(),by=b.Y(),cx=c.X(),cy=c.Y();
+    var D=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by)); if(Math.abs(D)<1e-12) return midXY(a,b);
+    var a2=ax*ax+ay*ay,b2=bx*bx+by*by,c2=cx*cx+cy*cy;
+    return [((a2*(by-cy)+b2*(cy-ay)+c2*(ay-by))/D), ((a2*(cx-bx)+b2*(ax-cx)+c2*(bx-ax))/D)]; }
+  function centroidXY(a,b,c){ return [(a.X()+b.X()+c.X())/3,(a.Y()+b.Y()+c.Y())/3]; }
+  function orthoXY(a,b,c){ // altitude from A to BC ∩ altitude from B to AC
+    var f1=footXY(a,b,c), f2=footXY(b,a,c);
+    // build points as temp coords via lineIntersect of A--f1 and B--f2
+    var A={X:function(){return a.X();},Y:function(){return a.Y();}};
+    var F1={X:function(){return f1[0];},Y:function(){return f1[1];}};
+    var B={X:function(){return b.X();},Y:function(){return b.Y();}};
+    var F2={X:function(){return f2[0];},Y:function(){return f2[1];}};
+    return lineIntersectXY(A,F1,B,F2); }
+  function incenterXY(a,b,c){
+    var aa=dist(b,c), bb=dist(a,c), cc=dist(a,b), s=aa+bb+cc; if(s<1e-12) return centroidXY(a,b,c);
+    return [(aa*a.X()+bb*b.X()+cc*c.X())/s, (aa*a.Y()+bb*b.Y()+cc*c.Y())/s]; }
+  function bisectorMeetXY(B,A,C,P,Q){
+    // unit vectors along AB, AC; their sum is the bisector direction; meet PQ
+    var bx=B.X()-A.X(), by=B.Y()-A.Y(), bl=Math.sqrt(bx*bx+by*by)||1;
+    var cx=C.X()-A.X(), cy=C.Y()-A.Y(), cl=Math.sqrt(cx*cx+cy*cy)||1;
+    var dx=bx/bl+cx/cl, dy=by/bl+cy/cl;
+    var R={X:function(){return A.X()+dx;},Y:function(){return A.Y()+dy;}};
+    return lineIntersectXY(A,R,P,Q); }
+  function solveConstraint(c){
+    var pr=c.parents||[];
+    function g(i){ return P[pr[i]]; }
+    if(pr.some(function(_,i){return !g(i);})) return null;
+    switch(c.type){
+      case 'midpoint': return midXY(g(0),g(1));
+      case 'partway': return partwayXY(g(0),g(1),c.t!=null?c.t:0.5);
+      case 'foot': return footXY(g(0),g(1),g(2));
+      case 'reflection': return reflectXY(g(0),g(1),g(2));
+      case 'point_reflection': return pointReflectXY(g(0),g(1));
+      case 'rotation': return rotateXY(g(0),g(1),c.angle||0);
+      case 'translation': return translateXY(g(0),g(1),g(2));
+      case 'intersection': return lineIntersectXY(g(0),g(1),g(2),g(3));
+      case 'circumcenter': return circumXY(g(0),g(1),g(2));
+      case 'centroid': return centroidXY(g(0),g(1),g(2));
+      case 'orthocenter': return orthoXY(g(0),g(1),g(2));
+      case 'incenter': return incenterXY(g(0),g(1),g(2));
+      case 'bisector_meet': return bisectorMeetXY(g(0),g(1),g(2),g(3),g(4));
+      default: return null;
+    }
+  }
+  function freeAttrs(p){ return {name:p.name,size:3,strokeColor:'#c026d3',fillColor:'#c026d3',
+    label:{fontSize:15,offset:[7,7]}}; }
+  function lockedAttrs(p){ return {name:p.name,size:3,strokeColor:'#e11d48',fillColor:'#e11d48',
+    fixed:true,highlight:false,label:{fontSize:15,offset:[7,7]}}; }
+  // Free / unconstrained first, then constrained in dependency order (multi-pass).
+  var pending=pts.slice(), guard=0;
+  while(pending.length && guard++<64){
+    var next=[];
+    pending.forEach(function(p){
+      if(p.constraint){
+        var parents=p.constraint.parents||[];
+        if(parents.some(function(n){return !P[n];})){ next.push(p); return; }
+        var coords=solveConstraint(p.constraint);
+        if(!coords){ // parents exist but type unknown -> free-drag fallback
+          P[p.name]=board.create('point',[p.x,p.y],freeAttrs(p));
+        } else {
+          // Function coords + explicit parents so JSXGraph re-solves when bases move.
+          (function(spec){
+            var el=board.create('point',[
+              function(){ var xy=solveConstraint(spec.constraint); return xy?xy[0]:spec.x; },
+              function(){ var xy=solveConstraint(spec.constraint); return xy?xy[1]:spec.y; }
+            ], lockedAttrs(spec));
+            (spec.constraint.parents||[]).forEach(function(n){ if(P[n]) try{el.addParents(P[n]);}catch(e){} });
+            P[spec.name]=el;
+          })(p);
+        }
+      } else {
+        P[p.name]=board.create('point',[p.x,p.y], p.free===false ? lockedAttrs(p) : freeAttrs(p));
+        if(p.free===false){ /* derived w/o constraint: keep red but allow drag */ P[p.name].setAttribute({fixed:false,highlight:true}); }
+      }
+      if(P[p.name]) P[p.name].on('up',function(){rename(P[p.name]);});
+    });
+    if(next.length===pending.length){ // cycle / missing parent — drop remaining as free-drag
+      next.forEach(function(p){
+        P[p.name]=board.create('point',[p.x,p.y], p.free===false?lockedAttrs(p):freeAttrs(p));
+        if(p.free===false) P[p.name].setAttribute({fixed:false,highlight:true});
+        P[p.name].on('up',function(){rename(P[p.name]);});
+      });
+      break;
+    }
+    pending=next;
+  }
   segs.forEach(function(s){ if(P[s[0]]&&P[s[1]]) board.create('segment',[P[s[0]],P[s[1]]],
     {strokeColor:'#222',strokeWidth:2,fixed:true,highlight:false}); });
   circ.forEach(function(c){
@@ -1054,15 +1379,22 @@ function run(){
     var np=board.create('point',[Math.round((b[0]+b[2])/2*100)/100,Math.round((b[1]+b[3])/2*100)/100],
       {name:'N'+addN,size:3,strokeColor:'#0891b2',fillColor:'#0891b2',label:{fontSize:15,offset:[7,7]}});
     np.on('up',function(){rename(np);}); };
-  function nm(p){ return (p.name&&/^[A-Za-z]/.test(p.name))?p.name:('P'+p.id); }
+  function isNamed(p){ return !!(p && p.name && /^[A-Za-z]/.test(p.name)); }
+  function nm(p){ return isNamed(p)?p.name:('P'+p.id); }
   function toTikz(){ var s='\\begin{tikzpicture}\n';
-    var pl=board.objectsList.filter(function(o){return o.elType==='point';});
+    // Named points only (skip circle-resize rings / unlabeled helpers).
+    var pl=board.objectsList.filter(function(o){return o.elType==='point' && isNamed(o);});
     pl.forEach(function(p){ s+='  \\coordinate ('+nm(p)+') at ('+p.X().toFixed(3)+','+p.Y().toFixed(3)+');\n'; });
     board.objectsList.filter(function(o){return o.elType==='segment';}).forEach(function(g){
-      s+='  \\draw ('+nm(g.point1)+')--('+nm(g.point2)+');\n'; });
+      if(isNamed(g.point1)&&isNamed(g.point2))
+        s+='  \\draw ('+nm(g.point1)+')--('+nm(g.point2)+');\n';
+    });
     board.objectsList.filter(function(o){return o.elType==='circle';}).forEach(function(ci){
-      s+='  \\draw ('+nm(ci.center)+') circle ('+ci.Radius().toFixed(3)+');\n'; });
-    pl.forEach(function(p){ if(p.name&&/^[A-Za-z]/.test(p.name)) s+='  \\fill ('+nm(p)+') circle (1.5pt) node[above right]{$'+p.name+'$};\n'; });
+      var c=ci.center, r=ci.Radius().toFixed(3);
+      if(isNamed(c)) s+='  \\draw ('+nm(c)+') circle ('+r+');\n';
+      else if(c) s+='  \\draw ('+c.X().toFixed(3)+','+c.Y().toFixed(3)+') circle ('+r+');\n';
+    });
+    pl.forEach(function(p){ s+='  \\fill ('+nm(p)+') circle (1.5pt) node[above right]{$'+p.name+'$};\n'; });
     return s+'\\end{tikzpicture}'; }
   function dl(name,text,type){ var b=new Blob([text],{type:type}); var a=document.createElement('a');
     a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -1070,8 +1402,19 @@ function run(){
   document.getElementById('dltikz').onclick=function(){ dl('figure.tex',toTikz(),'text/plain'); };
   document.getElementById('dlsvg').onclick=function(){ var svg=document.querySelector('#jxg svg');
     if(svg) dl('figure.svg',new XMLSerializer().serializeToString(svg),'image/svg+xml'); };
+  document.getElementById('apply').onclick=function(){
+    try { parent.postMessage({type:'geotikz-click-apply'}, '*'); } catch(e) {}
+  };
+  // Parent Gradio asks for current board TikZ (Apply bridge).
+  window.addEventListener('message', function(e){
+    if(!e.data || e.data.type!=='geotikz-request-tikz') return;
+    var t=''; try{ t=toTikz(); }catch(err){}
+    try { parent.postMessage({type:'geotikz-tikz', tikz:t}, '*'); } catch(err) {}
+  });
   window.__board = board;  // exposed for scripted verification / debugging
+  window.__P = P;
   window.__toTikz = toTikz;
+  window.__solveConstraint = solveConstraint;
 }
 boot();
 </script></body></html>"""
@@ -1314,6 +1657,53 @@ def build_ui(
     def new_figure():
         return _out([], None, None, "_Started a new figure._", None, board=_EMPTY_BOARD)
 
+    def apply_board_edits(board_tikz, history, current_tikz, current_png, pending):
+        """Compile board-exported TikZ and sync figure / chat / cur_* state.
+
+        Catch-all: never surfaces a Gradio Error badge. On compile failure, keep
+        the previous figure. Board HTML is left unchanged so live constraints stay.
+        """
+        try:
+            raw = (board_tikz or "").strip()
+            tikz = metrics.extract_tikz(raw) or raw
+            if not tikz:
+                return _out(
+                    history or [], current_tikz, current_png,
+                    "_No board figure to apply — generate one first, then edit the board._",
+                    pending,
+                )
+            if "tikzpicture" not in tikz:
+                tikz = "\\begin{tikzpicture}\n" + tikz + "\n\\end{tikzpicture}"
+            stem = f"board_{secrets.token_hex(4)}"
+            r, tikz = _render(tikz, stem, out_dir)
+            user_turn = "🖐 (apply board edits)"
+            if not r.ok:
+                badge = _attr("you (board edits)", kind="apply failed")
+                note = (
+                    f"Board edits didn't compile (`{r.reason}`) — kept your current figure."
+                )
+                h = (history or []) + [
+                    {"role": "user", "content": user_turn},
+                    {"role": "assistant", "content": f"{badge} — {note}"},
+                ]
+                return _out(h, current_tikz, current_png, badge, pending)
+            badge = _attr("you (board edits)", kind="applied")
+            note = "Applied board edits to the figure."
+            h = (history or []) + [
+                {"role": "user", "content": user_turn},
+                {"role": "assistant", "content": f"{badge} — {note}"},
+            ]
+            # Keep the interactive board as-is (constraints still live); only
+            # sync the static figure / TikZ / chat state for follow-up edits.
+            return _out(h, tikz, str(Path(r.png_path)), badge, None)
+        except Exception:  # noqa: BLE001
+            logger.exception("apply_board_edits crashed")
+            h = (history or []) + [
+                {"role": "user", "content": "🖐 (apply board edits)"},
+                {"role": "assistant", "content": CRASH},
+            ]
+            return _out(h, current_tikz, current_png, "_Something hiccuped — try again._", pending)
+
     # -- clean, State-free API endpoints (for gradio_client / HTTP tests) --
     def _api_msg(res):
         return res.note if res.clarify else f"{res.badge} — {res.note}"
@@ -1404,9 +1794,16 @@ def build_ui(
                 fig = gr.Image(label="Figure", type="filepath", elem_id="fig-out")
                 code = gr.Code(label="TikZ (editable / copyable)", language="latex")
 
-        with gr.Accordion("🖐 Interactive editor — drag points · resize circles · add points · export (beta)",
+        with gr.Accordion("🖐 Interactive editor — drag points · resize circles · Apply board edits (beta)",
                           open=True):
+            apply_board_btn = gr.Button(
+                "Apply board edits → figure / TikZ", variant="primary", elem_id="apply-board-btn")
+            gr.Markdown(
+                "_Drag free (magenta) points — constrained (red) points re-solve. "
+                "Then **Apply board edits** to update the Figure / TikZ / chat state._")
             board = gr.HTML(_EMPTY_BOARD)
+            # Slot filled by `_APPLY_BOARD_JS` (iframe → postMessage → TikZ text).
+            board_tikz_hold = gr.Textbox(visible=False, elem_id="board-tikz-hold", value="")
 
         outputs = [chat, cur_tikz, cur_png, fig, code, badge, pending, board]
         # Two-step at every entry point: (1) echo the user turn instantly + clear
@@ -1420,6 +1817,12 @@ def build_ui(
         # dropdown from the persisted store (so saves show up without a restart).
         app.load(_refresh_examples, None, [example_dd], js=_ENTER_JS)
         reset.click(new_figure, None, outputs)
+        apply_board_btn.click(
+            apply_board_edits,
+            [board_tikz_hold, chat, cur_tikz, cur_png, pending],
+            outputs,
+            js=_APPLY_BOARD_JS,
+        )
         example_btn.click(echo_example, [example_dd, chat], [chat]).then(
             gen_example, [example_dd, chat, cur_tikz, cur_png, use_spec, model, pending], outputs)
         save_ex_btn.click(do_save, [msg, chat], [example_dd, ex_status])
