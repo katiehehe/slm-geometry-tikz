@@ -88,7 +88,8 @@ def load_problems(n: int, seed: int) -> list[dict]:
 def specialist_outputs(probs: list[dict], backend: str, cache: serve.Cache,
                        max_new_tokens: int, batch_size: int,
                        modal_script: str = "scripts/infer_modal.py",
-                       cache_prefix: str = "specialist") -> dict[str, str]:
+                       cache_prefix: str = "specialist",
+                       adapter: str | None = None) -> dict[str, str]:
     # cache_prefix separates different specialists (e.g. the narrow v2 model vs
     # the illustrator); the token budget is in the key too, so re-running with a
     # larger budget regenerates instead of reusing truncated outputs.
@@ -109,7 +110,7 @@ def specialist_outputs(probs: list[dict], backend: str, cache: serve.Cache,
 
     descs = [p["description"] for p in todo]
     if backend == "modal":
-        gen = _specialist_modal(descs, max_new_tokens, batch_size, modal_script)
+        gen = _specialist_modal(descs, max_new_tokens, batch_size, modal_script, adapter)
     else:
         spec = serve.Specialist().load()
         gen = spec.generate_batch(descs, max_new_tokens=max_new_tokens, batch_size=batch_size)
@@ -120,13 +121,16 @@ def specialist_outputs(probs: list[dict], backend: str, cache: serve.Cache,
 
 
 def _specialist_modal(descs: list[str], max_new_tokens: int, batch_size: int,
-                      modal_script: str = "scripts/infer_modal.py") -> list[str]:
+                      modal_script: str = "scripts/infer_modal.py",
+                      adapter: str | None = None) -> list[str]:
     """Run the batched specialist on Modal via the given modal script.
 
     ``modal_script`` shares the ``--input/--output/--max-new-tokens/--batch-size``
     interface across scripts/infer_modal.py (narrow v2 specialist) and
     scripts/infer_illustrator_modal.py (the 1.7B illustrator), so the same driver
-    works for both.
+    works for both. ``adapter`` (when set) is forwarded as ``--adapter`` to pick a
+    specific LoRA on the Volume (e.g. qwen3-illustrator-4b vs -4b-v2) without
+    editing the inference script's RUN_NAME default.
     """
     tmp = Path(tempfile.mkdtemp(prefix="aime_modal_"))
     inp, outp = tmp / "in.jsonl", tmp / "out.jsonl"
@@ -135,6 +139,8 @@ def _specialist_modal(descs: list[str], max_new_tokens: int, batch_size: int,
     cmd = ["modal", "run", modal_script, "--input", str(inp),
            "--output", str(outp), "--max-new-tokens", str(max_new_tokens),
            "--batch-size", str(batch_size)]
+    if adapter:
+        cmd += ["--adapter", adapter]
     print("  running:", " ".join(cmd))
     subprocess.run(cmd, cwd=str(ROOT), check=True)
     rows = [json.loads(l) for l in outp.read_text().splitlines() if l.strip()]
@@ -281,6 +287,9 @@ def main() -> None:
     ap.add_argument("--specialist-script", default="scripts/infer_modal.py",
                     help="Modal inference script for the specialist "
                          "(use scripts/infer_illustrator_modal.py for the 1.7B illustrator)")
+    ap.add_argument("--adapter", default=None,
+                    help="LoRA adapter name on the Volume to forward as --adapter "
+                         "(e.g. qwen3-illustrator-4b-v2); default = the script's RUN_NAME")
     ap.add_argument("--fallback-model", default="openai-group/gpt-5.5")
     ap.add_argument("--no-fallback", action="store_true", help="skip the frontier fallback")
     ap.add_argument("--max-new-tokens", type=int, default=512)
@@ -307,9 +316,11 @@ def main() -> None:
 
     # --- Stage 1+2: specialist ---
     cache_prefix = "illustrator" if "illustrator" in args.specialist_script else "specialist"
+    if args.adapter:  # keep different adapters (v1 vs v2) in disjoint cache slots
+        cache_prefix = f"{cache_prefix}:{args.adapter}"
     spec_out = specialist_outputs(probs, args.backend, cache, args.max_new_tokens,
                                   args.batch_size, modal_script=args.specialist_script,
-                                  cache_prefix=cache_prefix)
+                                  cache_prefix=cache_prefix, adapter=args.adapter)
     print("[specialist] compiling ...")
     spec_items = [(p["id"], spec_out.get(p["id"], ""), out_dir / "specialist" / f"{p['id']}.png")
                   for p in probs]

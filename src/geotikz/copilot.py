@@ -78,6 +78,21 @@ FRONTIER_MODELS = ["openai-group/gpt-5.5", "claude-group/claude-opus-4-8",
 
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[2] / "outputs" / "copilot"
 
+# ── TUNABLE ROUTING KNOBS ─────────────────────────────────────────────────────
+# The specialist (qwen3-illustrator-4b-v2) is routed by an OP-VOCABULARY rule, not
+# a coarse difficulty score. The robust ceiling sweep (outputs/specialist_ceiling_
+# robust) found the limit is the OPERATION VOCABULARY, not chain depth: it is
+# reliable on any in-vocab op even in long (<=5) chains, and only breaks on
+#   (a) out-of-vocab ops / generic transforms,
+#   (b) more than a handful of simultaneous derived points, and
+#   (c) many-vertex regular polygons.
+# So _route_to_specialist() sends a scene to the specialist UNLESS one of those
+# three fires. Tune the two structural limits here.
+MAX_SPECIALIST_DERIVED = 5        # more than this many derived points -> frontier
+MAX_SPECIALIST_POLYGON_SIDES = 6  # regular polygon with more sides -> frontier
+# Cheap/fast model for the prompt normalizer + the (rare) intent fallback.
+_NORMALIZER_MODEL = "openai-group/gpt-4o"
+
 EDIT_SYSTEM = (
     "You edit TikZ/PGF geometry figures. Given the CURRENT figure and an edit "
     "instruction, return the COMPLETE revised figure. Preferences: keep everything "
@@ -260,6 +275,134 @@ def _classify_intent(message: str, model: str | None = None) -> str:
     return "scene"
 
 
+# --------------------------------------------------------------------------- #
+# routing: OP-VOCABULARY rule + prompt normalizer (specialist coverage, no retrain)
+# --------------------------------------------------------------------------- #
+# In-vocab construction ops (used to estimate how many derived points a scene asks
+# for). v2 added general affine transforms, nine-point centre, incircle contact,
+# square/parallelogram centre, bisector-incenter, midpoint-reflect chains.
+_CONSTRUCTIONS = re.compile(
+    r"\b(circumcenter|circumcircle|incenter|incircle|orthocenter|centroid|median|"
+    r"bisector|altitude|tangent|midpoint|midsegment|medial|orthic|nine[- ]?point|"
+    r"euler line|reflection|reflect|rotation|rotate|translation|translate|"
+    r"perpendicular|intersection|diagonal|antipode|diameter|contact|foot|angle)\b", re.I)
+
+# Ops OUTSIDE the specialist's vocabulary -> always frontier. (Nine-point centre is
+# now IN vocab for v2, so it is deliberately absent here.)
+_OUT_OF_VOCAB = re.compile(
+    r"\b("
+    r"cube|sphere|pyramid|tetrahedron|prism|cylinder|cone|dihedral|octahedron|"
+    r"3d|three[- ]dimensional|"                            # solids / 3D
+    r"locus|loci|trajectory|envelope|region|"              # loci / regions
+    r"ellipse|parabola|hyperbola|conic|"                   # non-circle conics
+    r"spiral|fractal|tessellation|lattice|vector field|"   # exotic
+    r"radical axis|inversion|shear|glide|homothet|dilation|dilate|"  # transforms out of range
+    r"graph of|plot of|\bplot\b|inequalit|\bfunction\b"    # function plots
+    r")\b", re.I)
+
+# Concrete affine transforms v2 CAN do. A bare 'transformation' with none of these
+# named is a generic/unknown transform -> frontier.
+_KNOWN_TRANSFORM = re.compile(r"\b(reflect\w*|rotat\w*|translat\w*|point[- ]reflection)\b", re.I)
+_GENERIC_TRANSFORM = re.compile(r"\btransformations?\b", re.I)
+
+# Named many-vertex polygons (heptagon and up) -> frontier (still weak: 5/12).
+_BIG_POLY_WORDS = re.compile(
+    r"\b(heptagon|septagon|octagon|nonagon|enneagon|decagon|hendecagon|undecagon|dodecagon)\b", re.I)
+
+
+def _big_polygon(dl: str) -> bool:
+    """True for a regular polygon with more than MAX_SPECIALIST_POLYGON_SIDES sides."""
+    if _BIG_POLY_WORDS.search(dl):
+        return True
+    for m in re.finditer(r"(\d+)\s*[- ]?gon\b|(\d+)\s*[- ]?sided\b|"
+                         r"regular\s+polygon[^.]*?\b(\d+)\s+sides", dl):
+        for g in m.groups():
+            if g and int(g) > MAX_SPECIALIST_POLYGON_SIDES:
+                return True
+    return False
+
+
+def _derived_count(description: str) -> int:
+    """Estimate the number of DERIVED (constructed) points a scene asks for.
+
+    Counts distinct point names introduced as constructions — bound by 'let X',
+    'X be …', 'X the …', or listed in an enumeration — minus base points that are
+    given explicit coordinates ('A=(0,0)'). Falls back to the count of distinct
+    construction ops when no names are found. (A long *chain* of in-vocab ops is
+    fine; this only fires when many points are requested at once.)"""
+    d = description or ""
+    base = set(re.findall(r"\b([A-Z]\d?)\s*(?:=|\bat\b)\s*\(", d))     # base pts w/ coords
+    cand = set(re.findall(r"\b([A-Z]\d?)\s+(?:be|the)\b", d))          # "M be", "O the"
+    cand |= set(re.findall(r"\blet\s+([A-Z]\d?)\b", d, re.I))          # "let O"
+    cand |= set(re.findall(r"\b([A-Z]\d?)\s*,\s*(?=[A-Z])", d))        # "P,Q,R," lists
+    derived = cand - base
+    if derived:
+        return len(derived)
+    return len(set(m.lower() for m in _CONSTRUCTIONS.findall(d.lower())))
+
+
+def _route_to_specialist(description: str) -> tuple[bool, str]:
+    """OP-VOCABULARY routing. Returns (use_specialist, reason_for_frontier).
+
+    Route to the specialist UNLESS the request needs something it reliably fails:
+    an out-of-vocab op / generic transform, more than MAX_SPECIALIST_DERIVED
+    derived points, or a many-vertex regular polygon. Chain LENGTH is NOT a reason
+    to bail — the ceiling sweep found long in-vocab chains reliable. (We can't
+    tell a 5-step chain from 5 *simultaneous* derived points in free text, so we
+    keep <=MAX_SPECIALIST_DERIVED local and send more to the frontier.)
+    """
+    dl = (description or "").lower()
+    if _OUT_OF_VOCAB.search(dl):
+        return False, "out-of-vocab op"
+    if _GENERIC_TRANSFORM.search(dl) and not _KNOWN_TRANSFORM.search(dl):
+        return False, "generic transform"
+    if _big_polygon(dl):
+        return False, "many-vertex polygon"
+    n = _derived_count(description)  # NB: original case (point-name detection)
+    if n > MAX_SPECIALIST_DERIVED:
+        return False, f"{n} derived points"
+    return True, ""
+
+
+def _looks_templated(description: str) -> bool:
+    """True if the request is already in (or close to) the specialist's trained
+    template (base coords + 'output a single tikz figure … define …'), so we can
+    skip the normalizer call."""
+    d = description or ""
+    dl = d.lower()
+    return bool(re.search(r"=\s*\(-?\d", d)) and (
+        "output a single tikz figure" in dl or "at their correct positions" in dl)
+
+
+_NORMALIZE_SYSTEM = (
+    "You rewrite a user's free-form geometry request into a STRICT template for a small "
+    "figure model. Assign concrete small integer coordinates to the base points, name the "
+    "single derived construction, and phrase it EXACTLY like this example:\n"
+    "'Triangle ABC has vertices A=(0,0), B=(6,0), C=(1,4). Let O be the circumcenter of "
+    "triangle ABC. Output a single TikZ figure that draws triangle ABC and its circumcircle, "
+    "and defines the named points A, B, C, O at their correct positions.'\n"
+    "Rules: keep to ONE construction; use the base shape the user asked for (triangle, "
+    "quadrilateral, circle, square, regular polygon, two circles, segment…) with explicit "
+    "integer coordinates; end with 'Output a single TikZ figure that draws … and defines the "
+    "named points … at their correct positions.' Output ONLY the rewritten description — no "
+    "preamble, no code."
+)
+
+
+def _normalize_for_specialist(description: str, model: str = _NORMALIZER_MODEL) -> str:
+    """Rewrite a free-form request into the specialist's trained template. Returns
+    the original description on any failure (never raises)."""
+    try:
+        r = gateway.chat(
+            [{"role": "system", "content": _NORMALIZE_SYSTEM},
+             {"role": "user", "content": description}],
+            model, max_tokens=400, temperature=0.0, retries=2)
+        out = (r.text or "").strip()
+        return out or description
+    except Exception:  # noqa: BLE001
+        return description
+
+
 def _data_url(image_path: str) -> str:
     data = Path(image_path).read_bytes()
     ext = Path(image_path).suffix.lstrip(".").lower() or "png"
@@ -323,31 +466,52 @@ def generate_text(
                            clarify=True)
     stem = serve.dhash(description + str(time.time()))
     prefix = ""
-    # Why the frontier is used (shown in the badge): specialist off unless we
-    # actually try it and it can't draw -> "specialist fell back".
+    # Why the frontier is used (shown in the badge).
     spec_reason = "specialist off"
 
-    # 1) specialist first (if enabled) — retry transient failures, never raise.
+    # 1) specialist route — gated by OP VOCABULARY (not phrasing, not chain depth).
+    # If every requested op is in the specialist's range we normalize the free-form
+    # request into its trained template and try it; only out-of-vocab ops / generic
+    # transforms, too many derived points, or many-vertex polygons skip to frontier.
     if use_specialist and specialist_fn is not None:
-        t0 = time.time()
-        spec_tikz = ""
-        try:
-            spec_tikz = _retry(lambda: specialist_fn(description) or "", tries=3) or ""
-        except Exception as e:  # noqa: BLE001 - specialist down -> frontier
-            logger.warning("specialist failed after retries: %s", e)
-        if spec_tikz:
-            # Tidy the specialist's labels (push outward + white halo) for legibility;
-            # if the tidied figure doesn't compile, fall back to the ORIGINAL so this
-            # aesthetic pass can never break a figure.
-            tidied = serve.tidy_labels(spec_tikz)
-            r, tikz = _render(tidied, stem, out_dir)
-            if not r.ok and tidied != spec_tikz:
-                r, tikz = _render(spec_tikz, stem, out_dir)
-            if r.ok:
-                return RouteResult(str(Path(r.png_path)), tikz, _attr(_resolve_label(specialist_label)),
-                                   f"Specialist drew it in {time.time() - t0:.0f}s (coordinate-free, compiled).")
-        spec_reason = "specialist fell back"
-        prefix = "The specialist couldn't draw this one, so a frontier model did. "
+        route_local, why = _route_to_specialist(description)
+        if not route_local:
+            spec_reason = why  # short badge tag, e.g. "out-of-vocab op"
+            prefix = {
+                "out-of-vocab op": "This construction is outside the specialist's vocabulary, so a frontier model drew it. ",
+                "generic transform": "This general transform is outside the specialist's range, so a frontier model drew it. ",
+                "many-vertex polygon": "Many-sided regular polygons are still weak for the specialist, so a frontier model drew it. ",
+            }.get(why, "This has more constructed points than the specialist handles well, so a frontier model drew it. ")
+        else:
+            t0 = time.time()
+            norm_desc, normalized = description, False
+            if not _looks_templated(description):
+                norm_desc = _normalize_for_specialist(description) or description
+                normalized = norm_desc.strip() != description.strip()
+            spec_tikz = ""
+            try:
+                spec_tikz = _retry(lambda: specialist_fn(norm_desc) or "", tries=3) or ""
+            except Exception as e:  # noqa: BLE001 - specialist down -> frontier
+                logger.warning("specialist failed after retries: %s", e)
+            if spec_tikz:
+                # Tidy the specialist's labels (push outward + white halo) for legibility;
+                # if the tidied figure doesn't compile, fall back to the ORIGINAL so this
+                # aesthetic pass can never break a figure.
+                tidied = serve.tidy_labels(spec_tikz)
+                r, tikz = _render(tidied, stem, out_dir)
+                if not r.ok and tidied != spec_tikz:
+                    r, tikz = _render(spec_tikz, stem, out_dir)
+                if r.ok:
+                    lbl = _resolve_label(specialist_label)
+                    if normalized and lbl.endswith(")"):
+                        lbl = lbl[:-1] + " · normalized)"
+                    dt = time.time() - t0
+                    note = (f"Normalized your request, then the specialist drew it in {dt:.0f}s."
+                            if normalized else
+                            f"Specialist drew it in {dt:.0f}s (coordinate-free, compiled).")
+                    return RouteResult(str(Path(r.png_path)), tikz, _attr(lbl), note)
+            spec_reason = "specialist fell back"
+            prefix = "The specialist couldn't draw this one, so a frontier model did. "
 
     # 2) frontier: draw OR clarify (one call).
     messages = [
@@ -662,6 +826,277 @@ _EXAMPLE_LABELS = [
 ]
 EXAMPLE_CHOICES = list(zip(_EXAMPLE_LABELS, EXAMPLE_PROMPTS))
 
+DEFAULT_EXAMPLES_STORE = DEFAULT_OUT_DIR / "user_examples.json"
+
+
+def _short_label(prompt: str) -> str:
+    p = (prompt or "").strip().replace("\n", " ")
+    return p if len(p) <= 50 else p[:47] + "…"
+
+
+def _load_saved_examples(path: str | Path) -> list[str]:
+    """User-saved example prompts (persisted JSON). Never raises."""
+    try:
+        import json
+        p = Path(path)
+        if p.exists():
+            data = json.loads(p.read_text())
+            if isinstance(data, list):
+                return [str(x) for x in data if str(x).strip()]
+    except Exception:  # noqa: BLE001
+        logger.exception("load saved examples failed")
+    return []
+
+
+def _save_saved_examples(path: str | Path, items: list[str]) -> None:
+    try:
+        import json
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(items, indent=2))
+    except Exception:  # noqa: BLE001
+        logger.exception("save saved examples failed")
+
+
+def _dropdown_choices(saved: list[str]) -> list[tuple[str, str]]:
+    """Dropdown = built-in validated defaults + user-saved (marked with ★)."""
+    return list(EXAMPLE_CHOICES) + [(f"★ {_short_label(p)}", p) for p in saved]
+
+
+# --------------------------------------------------------------------------- #
+# interactive editor: TikZ figure -> structured spec -> JSXGraph board (iframe)
+# --------------------------------------------------------------------------- #
+def _collect_point_names(tikz: str) -> list[str]:
+    names: list[str] = []
+    defs = [r"\\tkzDefPoint\([^)]*\)\{([A-Za-z]\w*)\}", r"\\tkzGetPoint\{([A-Za-z]\w*)\}",
+            r"\\tkzGetPoints\{([A-Za-z]\w*)\}\{([A-Za-z]\w*)\}",
+            r"\\coordinate\s*\(\s*([A-Za-z]\w*)\s*\)", r"\\node\s*\(\s*([A-Za-z]\w*)\s*\)"]
+    for pat in defs:
+        for m in re.finditer(pat, tikz):
+            for g in m.groups():
+                if g and g not in names:
+                    names.append(g)
+    for pat in [r"\\tkzDrawPoints\(([^)]*)\)", r"\\tkzLabelPoints(?:\[[^\]]*\])?\(([^)]*)\)"]:
+        for m in re.finditer(pat, tikz):
+            for n in m.group(1).split(","):
+                n = n.strip()
+                if re.fullmatch(r"[A-Za-z]\w*", n) and n not in names:
+                    names.append(n)
+    return names
+
+
+def _literal_coords(tikz: str) -> dict[str, tuple[float, float]]:
+    num = r"(-?\d+(?:\.\d+)?)"
+    out: dict[str, tuple[float, float]] = {}
+    for m in re.finditer(rf"\\tkzDefPoint\(\s*{num}\s*,\s*{num}\s*\)\{{([A-Za-z]\w*)\}}", tikz):
+        out[m.group(3)] = (float(m.group(1)), float(m.group(2)))
+    for m in re.finditer(rf"\\coordinate\s*\(\s*([A-Za-z]\w*)\s*\)\s*at\s*\(\s*{num}\s*,\s*{num}\s*\)", tikz):
+        out[m.group(1)] = (float(m.group(2)), float(m.group(3)))
+    return out
+
+
+def _free_points(tikz: str) -> set[str]:
+    free = {m.group(1) for m in re.finditer(r"\\tkzDefPoint\([^)]*\)\{([A-Za-z]\w*)\}", tikz)}
+    free |= {m.group(1) for m in re.finditer(r"\\coordinate\s*\(\s*([A-Za-z]\w*)\s*\)\s*at\s*\(\s*-?\d", tikz)}
+    return free
+
+
+def _parse_segments(tikz: str, pts: dict) -> list[list[str]]:
+    segs: list[list[str]] = []
+
+    def add(a, b):
+        if a in pts and b in pts and a != b and [a, b] not in segs and [b, a] not in segs:
+            segs.append([a, b])
+
+    for m in re.finditer(r"\\tkzDrawPolygon\(([^)]*)\)", tikz):
+        ns = [n.strip() for n in m.group(1).split(",") if n.strip()]
+        for i in range(len(ns)):
+            add(ns[i], ns[(i + 1) % len(ns)])
+    for m in re.finditer(r"\\tkzDrawSegments?\(([^)]*)\)", tikz):
+        body = m.group(1).strip()
+        parts = body.split() if " " in body else [body]
+        for pair in parts:
+            xy = [t.strip() for t in pair.split(",")]
+            if len(xy) == 2:
+                add(xy[0], xy[1])
+    for m in re.finditer(r"\\tkzDrawLine\(([^)]*)\)", tikz):
+        xy = [t.strip() for t in m.group(1).split(",")]
+        if len(xy) == 2:
+            add(xy[0], xy[1])
+    for m in re.finditer(r"\\draw\b([^;]*);", tikz):
+        body = m.group(1)
+        chain = []
+        for part in body.split("--"):
+            mm = re.search(r"\(\s*([A-Za-z]\w*)\s*\)", part)
+            chain.append(mm.group(1) if mm else None)
+        for i in range(len(chain) - 1):
+            if chain[i] and chain[i + 1]:
+                add(chain[i], chain[i + 1])
+        if "cycle" in body:  # close the polygon
+            named = [c for c in chain if c]
+            if len(named) >= 2:
+                add(named[-1], named[0])
+    return segs
+
+
+def _parse_circles(tikz: str, pts: dict) -> list[dict]:
+    circles: list[dict] = []
+    for m in re.finditer(r"\\tkzDrawCircle(?:\[[^\]]*\])?\(([^)]*)\)", tikz):
+        args = [a.strip() for a in m.group(1).split(",")]
+        if len(args) == 2 and args[0] in pts and args[1] in pts:
+            circles.append({"center": args[0], "through": args[1]})
+    for m in re.finditer(r"\\draw[^;]*?\(\s*([A-Za-z]\w*)\s*\)\s*circle\s*\(\s*([\d.]+)\s*\)", tikz):
+        if m.group(1) in pts:
+            circles.append({"center": m.group(1), "r": float(m.group(2))})
+    for m in re.finditer(r"\\draw[^;]*?\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\s*circle\s*\(\s*([\d.]+)\s*\)", tikz):
+        circles.append({"cx": float(m.group(1)), "cy": float(m.group(2)), "r": float(m.group(3))})
+    return circles
+
+
+def _figure_spec(tikz: str, timeout: int = 45) -> dict | None:
+    """Structured, interactive-ready spec from a TikZ figure. Coords come from
+    literal defs first, then a single compile-extract for any derived points."""
+    try:
+        tikz = metrics.extract_tikz(tikz or "") or (tikz or "")
+        if not tikz.strip():
+            return None
+        names = _collect_point_names(tikz)
+        if not names:
+            return None
+        coords = {n: c for n, c in _literal_coords(tikz).items() if n in names}
+        missing = [n for n in names if n not in coords]
+        if missing:
+            try:
+                from . import extract
+                ext = extract.extract_named_coords(tikz, missing, timeout=timeout)
+                coords.update({n: c for n, c in ext.items() if c})
+            except Exception:  # noqa: BLE001
+                logger.exception("board coord extract failed")
+        if not coords:
+            return None
+        free = _free_points(tikz)
+        return {
+            "points": [{"name": n, "x": round(x, 4), "y": round(y, 4), "free": n in free}
+                       for n, (x, y) in coords.items()],
+            "segments": _parse_segments(tikz, coords),
+            "circles": _parse_circles(tikz, coords),
+        }
+    except Exception:  # noqa: BLE001
+        logger.exception("figure spec failed")
+        return None
+
+
+_JSX_CDN_JS = "https://cdn.jsdelivr.net/npm/jsxgraph/distrib/jsxgraphcore.js"
+_JSX_CDN_CSS = "https://cdn.jsdelivr.net/npm/jsxgraph/distrib/jsxgraph.css"
+
+_EMPTY_BOARD = (
+    "<div style='padding:14px;color:#666;font-family:system-ui,sans-serif;font-size:14px'>"
+    "Generate a figure and it becomes <b>editable</b> here — drag points, resize circles, "
+    "add points, then export TikZ/SVG.</div>"
+)
+
+_BOARD_DOC = r"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="__CSS__">
+<script src="__JS__"></script>
+<style>
+ html,body{margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif}
+ #bar{padding:6px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #eee}
+ #bar button{font-size:13px;padding:4px 9px;border:1px solid #d0d0d0;border-radius:6px;background:#fff;cursor:pointer}
+ #bar button:hover{background:#f3f4f6}
+ #hint{color:#888;font-size:12px;margin-left:auto}
+ #jxg{width:100%;height:430px;background:#fff}
+ #out{width:100%;box-sizing:border-box;height:120px;display:none;font-family:ui-monospace,monospace;font-size:12px;border:0;border-top:1px solid #eee;padding:8px}
+</style></head><body>
+<div id="bar">
+ <button id="addpt">+ point</button>
+ <button id="tikz">export TikZ</button>
+ <button id="dltikz">download .tex</button>
+ <button id="dlsvg">download SVG</button>
+ <span id="hint">drag points · drag a circle's ring to resize · double-click a point to rename</span>
+</div>
+<div id="jxg" class="jxgbox"></div>
+<textarea id="out" readonly></textarea>
+<script>
+var SPEC = __SPEC__;
+function boot(){ if(!window.JXG || !JXG.JSXGraph){ return setTimeout(boot,120); }
+  try{ run(); }catch(e){ document.getElementById('jxg').innerHTML =
+    '<div style="padding:12px;color:#a00">interactive board error: '+e+'</div>'; } }
+function run(){
+  var pts=SPEC.points||[], segs=SPEC.segments||[], circ=SPEC.circles||[];
+  var xs=pts.map(function(p){return p.x;}), ys=pts.map(function(p){return p.y;});
+  circ.forEach(function(c){ if(c.r!==undefined){ var cx,cy;
+    if(c.cx!==undefined){cx=c.cx;cy=c.cy;} else { var cp=pts.filter(function(p){return p.name===c.center;})[0]; if(cp){cx=cp.x;cy=cp.y;} }
+    if(cx!==undefined){ xs.push(cx-c.r,cx+c.r); ys.push(cy-c.r,cy+c.r); } } });
+  if(!xs.length){ xs=[-5,5]; ys=[-5,5]; }
+  var minx=Math.min.apply(null,xs),maxx=Math.max.apply(null,xs),miny=Math.min.apply(null,ys),maxy=Math.max.apply(null,ys);
+  var pad=0.25*Math.max(maxx-minx,maxy-miny,1)+1;
+  var board=JXG.JSXGraph.initBoard('jxg',{boundingbox:[minx-pad,maxy+pad,maxx+pad,miny-pad],
+    keepaspectratio:true,axis:false,showNavigation:true,showCopyright:false,
+    pan:{enabled:true,needShift:false},zoom:{wheel:true}});
+  var P={};
+  function rename(pt){ var t=Date.now(); if(pt._t && t-pt._t<340){ var nn=prompt('Rename point '+pt.name+' to:',pt.name);
+    if(nn){ try{pt.setName(nn);}catch(e){pt.setAttribute({name:nn});} board.update(); } } pt._t=t; }
+  pts.forEach(function(p){ P[p.name]=board.create('point',[p.x,p.y],{name:p.name,size:3,
+    strokeColor:p.free?'#c026d3':'#e11d48',fillColor:p.free?'#c026d3':'#e11d48',label:{fontSize:15,offset:[7,7]}});
+    P[p.name].on('up',function(){rename(P[p.name]);}); });
+  segs.forEach(function(s){ if(P[s[0]]&&P[s[1]]) board.create('segment',[P[s[0]],P[s[1]]],
+    {strokeColor:'#222',strokeWidth:2,fixed:true,highlight:false}); });
+  circ.forEach(function(c){
+    if(c.through!==undefined && P[c.center] && P[c.through]){
+      board.create('circle',[P[c.center],P[c.through]],{strokeColor:'#1d4ed8',strokeWidth:2,fixed:true,highlight:false});
+    } else if(c.r!==undefined){
+      var cc=(c.center!==undefined&&P[c.center])?P[c.center]:board.create('point',[c.cx,c.cy],{name:'',size:1,withLabel:false,color:'#1d4ed8'});
+      var ring=board.create('point',[cc.X()+c.r,cc.Y()],{name:'',size:2,face:'o',strokeColor:'#1d4ed8',fillColor:'#fff'});
+      board.create('circle',[cc,ring],{strokeColor:'#1d4ed8',strokeWidth:2,fixed:true,highlight:false});
+    } });
+  var addN=0;
+  document.getElementById('addpt').onclick=function(){ addN++; var b=board.getBoundingBox();
+    var np=board.create('point',[Math.round((b[0]+b[2])/2*100)/100,Math.round((b[1]+b[3])/2*100)/100],
+      {name:'N'+addN,size:3,strokeColor:'#0891b2',fillColor:'#0891b2',label:{fontSize:15,offset:[7,7]}});
+    np.on('up',function(){rename(np);}); };
+  function nm(p){ return (p.name&&/^[A-Za-z]/.test(p.name))?p.name:('P'+p.id); }
+  function toTikz(){ var s='\\begin{tikzpicture}\n';
+    var pl=board.objectsList.filter(function(o){return o.elType==='point';});
+    pl.forEach(function(p){ s+='  \\coordinate ('+nm(p)+') at ('+p.X().toFixed(3)+','+p.Y().toFixed(3)+');\n'; });
+    board.objectsList.filter(function(o){return o.elType==='segment';}).forEach(function(g){
+      s+='  \\draw ('+nm(g.point1)+')--('+nm(g.point2)+');\n'; });
+    board.objectsList.filter(function(o){return o.elType==='circle';}).forEach(function(ci){
+      s+='  \\draw ('+nm(ci.center)+') circle ('+ci.Radius().toFixed(3)+');\n'; });
+    pl.forEach(function(p){ if(p.name&&/^[A-Za-z]/.test(p.name)) s+='  \\fill ('+nm(p)+') circle (1.5pt) node[above right]{$'+p.name+'$};\n'; });
+    return s+'\\end{tikzpicture}'; }
+  function dl(name,text,type){ var b=new Blob([text],{type:type}); var a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
+  document.getElementById('tikz').onclick=function(){ var o=document.getElementById('out'); o.style.display='block'; o.value=toTikz(); o.focus(); o.select(); };
+  document.getElementById('dltikz').onclick=function(){ dl('figure.tex',toTikz(),'text/plain'); };
+  document.getElementById('dlsvg').onclick=function(){ var svg=document.querySelector('#jxg svg');
+    if(svg) dl('figure.svg',new XMLSerializer().serializeToString(svg),'image/svg+xml'); };
+  window.__board = board;  // exposed for scripted verification / debugging
+  window.__toTikz = toTikz;
+}
+boot();
+</script></body></html>"""
+
+
+def _board_html(tikz: str, height: int = 560) -> str:
+    """Build the interactive JSXGraph board (sandboxed iframe) from a figure, or a
+    friendly placeholder if the figure can't be made interactive. Never raises."""
+    try:
+        import json
+        spec = _figure_spec(tikz)
+        if not spec or not spec.get("points"):
+            return _EMPTY_BOARD
+        doc = (_BOARD_DOC.replace("__CSS__", _JSX_CDN_CSS).replace("__JS__", _JSX_CDN_JS)
+               .replace("__SPEC__", json.dumps(spec)))
+        srcdoc = doc.replace("&", "&amp;").replace('"', "&quot;")
+        return (
+            '<iframe title="interactive geometry editor" '
+            'sandbox="allow-scripts allow-modals allow-downloads allow-popups allow-popups-to-escape-sandbox" '
+            f'style="width:100%;height:{height}px;border:1px solid #e5e7eb;border-radius:8px" '
+            f'srcdoc="{srcdoc}"></iframe>')
+    except Exception:  # noqa: BLE001
+        logger.exception("board html failed")
+        return _EMPTY_BOARD
+
 
 def build_ui(
     specialist_fn: SpecialistFn | None = None,
@@ -675,6 +1110,8 @@ def build_ui(
     vision_models: list[str] | None = None,
     specialist_default: bool = False,
     specialist_toggle_label: str = "Try the specialist first",
+    examples_store_path: str | Path | None = None,
+    commit_examples: Callable[[], None] | None = None,
 ) -> gr.Blocks:
     """Build the copilot Gradio app.
 
@@ -689,15 +1126,65 @@ def build_ui(
     frontier_models = frontier_models or FRONTIER_MODELS
     vision_models = vision_models or VISION_MODELS
     has_specialist = specialist_fn is not None
+    store_path = Path(examples_store_path) if examples_store_path else DEFAULT_EXAMPLES_STORE
 
     def _repair_model() -> str:
         return frontier_models[0]
 
+    def _persist_examples(items):
+        _save_saved_examples(store_path, items)
+        if commit_examples is not None:
+            try:
+                commit_examples()  # e.g. Modal Volume .commit() so it survives restarts
+            except Exception:  # noqa: BLE001
+                logger.exception("commit_examples failed")
+
+    def do_save(msg_text, history):
+        try:
+            prompt = (msg_text or "").strip()
+            if not prompt:  # fall back to the last thing the user sent
+                for m in reversed(history or []):
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        prompt = str(m.get("content", "")).strip()
+                        break
+            if not prompt or prompt[0] in "🖼️📄📋":
+                return gr.update(), "_Type or send a text prompt first, then Save._"
+            saved = _load_saved_examples(store_path)
+            if prompt in EXAMPLE_PROMPTS or prompt in saved:
+                return gr.update(), "_Already in the examples list._"
+            saved.append(prompt)
+            _persist_examples(saved)
+            return gr.update(choices=_dropdown_choices(saved), value=prompt), "_Saved — it's in the dropdown._"
+        except Exception:  # noqa: BLE001
+            logger.exception("do_save crashed")
+            return gr.update(), "_Couldn't save that one — try again._"
+
+    def _refresh_examples():
+        return gr.update(choices=_dropdown_choices(_load_saved_examples(store_path)))
+
+    def do_remove(selected):
+        try:
+            if not selected:
+                return gr.update(), "_Pick a saved (★) example to remove._"
+            if selected in EXAMPLE_PROMPTS:
+                return gr.update(), "_That's a built-in example — can't remove it._"
+            saved = _load_saved_examples(store_path)
+            if selected in saved:
+                saved.remove(selected)
+                _persist_examples(saved)
+                return gr.update(choices=_dropdown_choices(saved), value=None), "_Removed._"
+            return gr.update(), "_Not a saved example._"
+        except Exception:  # noqa: BLE001
+            logger.exception("do_remove crashed")
+            return gr.update(), "_Couldn't remove that one — try again._"
+
     CRASH = "Sorry — something hiccuped on my end. Your figure is safe; please try again."
 
-    # Outputs order everywhere: [chat, cur_tikz, cur_png, fig, code, badge, pending].
-    def _out(history, tikz, png, badge, pending):
-        return history, tikz, png, png, (tikz or ""), badge, pending
+    # Outputs order: [chat, cur_tikz, cur_png, fig, code, badge, pending, board].
+    # board defaults to gr.update() (unchanged) unless a new figure is drawn.
+    def _out(history, tikz, png, badge, pending, board=None):
+        return (history, tikz, png, png, (tikz or ""), badge, pending,
+                board if board is not None else gr.update())
 
     _THINKING = "✏️ …drawing…"
 
@@ -716,8 +1203,9 @@ def build_ui(
         if res.clarify:
             pending = {"kind": pend_kind, "text": pend_text} if pend_kind else None
             return _out(_finish_assistant(history, res.note), current_tikz, current_png, _CLARIFY_BADGE, pending)
-        if res.png:  # a new figure was drawn
-            return _out(_finish_assistant(history, f"{res.badge} — {res.note}"), res.tikz, res.png, res.badge, None)
+        if res.png:  # a new figure was drawn -> refresh the interactive board too
+            return _out(_finish_assistant(history, f"{res.badge} — {res.note}"), res.tikz, res.png,
+                        res.badge, None, board=_board_html(res.tikz))
         return _out(_finish_assistant(history, f"{res.badge} — {res.note}"),  # keep last figure
                     current_tikz, current_png, res.badge, None)
 
@@ -804,7 +1292,7 @@ def build_ui(
             res = render_pasted(tikz_text, out_dir=out_dir, repair_model=_repair_model())
             if res.png:
                 return _out(_finish_assistant(history, f"{res.badge} — {res.note}"),
-                            res.tikz, res.png, res.badge, None)
+                            res.tikz, res.png, res.badge, None, board=_board_html(res.tikz))
             return _out(_finish_assistant(history, res.note), current_tikz, current_png, _CLARIFY_BADGE, pending)
         except Exception:  # noqa: BLE001
             logger.exception("gen_paste crashed")
@@ -824,7 +1312,7 @@ def build_ui(
                         "_Something hiccuped — try again._", pending)
 
     def new_figure():
-        return _out([], None, None, "_Started a new figure._", None)
+        return _out([], None, None, "_Started a new figure._", None, board=_EMPTY_BOARD)
 
     # -- clean, State-free API endpoints (for gradio_client / HTTP tests) --
     def _api_msg(res):
@@ -883,9 +1371,13 @@ def build_ui(
                                  placeholder="Describe a scene, or an edit — Enter to send, Shift+Enter for a new line")
                 with gr.Row():
                     example_dd = gr.Dropdown(
-                        EXAMPLE_CHOICES, value=None, scale=3,
-                        label="Example prompts (specialist can draw these)")
+                        _dropdown_choices(_load_saved_examples(store_path)), value=None, scale=3,
+                        label="Example prompts (built-in + your saved ★)")
                     example_btn = gr.Button("Generate", scale=1)
+                with gr.Row():
+                    save_ex_btn = gr.Button("★ Save current as example", size="sm")
+                    remove_ex_btn = gr.Button("Remove selected", size="sm")
+                ex_status = gr.Markdown("")
                 img = gr.Image(label="…or a screenshot of a problem", type="filepath")
                 with gr.Row():
                     send = gr.Button("Send", variant="primary", elem_id="send-btn")
@@ -912,7 +1404,11 @@ def build_ui(
                 fig = gr.Image(label="Figure", type="filepath", elem_id="fig-out")
                 code = gr.Code(label="TikZ (editable / copyable)", language="latex")
 
-        outputs = [chat, cur_tikz, cur_png, fig, code, badge, pending]
+        with gr.Accordion("🖐 Interactive editor — drag points · resize circles · add points · export (beta)",
+                          open=True):
+            board = gr.HTML(_EMPTY_BOARD)
+
+        outputs = [chat, cur_tikz, cur_png, fig, code, badge, pending, board]
         # Two-step at every entry point: (1) echo the user turn instantly + clear
         # the input, then (2) .then(...) run generation (fills the assistant reply).
         _echo_out = [chat, msg, img, msg_hold, img_hold]
@@ -920,10 +1416,14 @@ def build_ui(
         send.click(echo_send, [msg, img, chat], _echo_out).then(gen_send, _gen_in, outputs)
         # Enter submits (msg.submit); Shift+Enter inserts a newline (_ENTER_JS on load).
         msg.submit(echo_send, [msg, img, chat], _echo_out).then(gen_send, _gen_in, outputs)
-        app.load(None, None, None, js=_ENTER_JS)
+        # On each page load: wire Enter-to-send (js) and refresh the examples
+        # dropdown from the persisted store (so saves show up without a restart).
+        app.load(_refresh_examples, None, [example_dd], js=_ENTER_JS)
         reset.click(new_figure, None, outputs)
         example_btn.click(echo_example, [example_dd, chat], [chat]).then(
             gen_example, [example_dd, chat, cur_tikz, cur_png, use_spec, model, pending], outputs)
+        save_ex_btn.click(do_save, [msg, chat], [example_dd, ex_status])
+        remove_ex_btn.click(do_remove, [example_dd], [example_dd, ex_status])
         paste_btn.click(echo_paste, [paste_box, chat], [chat]).then(
             gen_paste, [paste_box, chat, cur_tikz, cur_png, pending], outputs)
         pdf_btn.click(echo_pdf, [pdf_in, chat], [chat]).then(

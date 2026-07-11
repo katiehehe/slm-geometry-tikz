@@ -59,9 +59,12 @@ SECRET_NAME = "geotikz-copilot"  # gateway creds + gradio auth
 OUT_DIR = "/tmp/geotikz-copilot"
 CACHE_DIR = "/root/.tectonic-cache"
 
-# Adapters tried in order (best coverage first). All three live on the Volume
-# ``geotikz-outputs``; the first one present is loaded.
+# Adapters tried in order (best coverage first). All live on the Volume
+# ``geotikz-outputs``; the first one present is loaded. v2 is the promoted
+# default (strictly dominates v1 on the coord-verified gate + harder families,
+# holds phrasing, and passed the real-AIME spot-check); v1 stays as fallback.
 ADAPTERS = [
+    ("qwen3-illustrator-4b-v2", "Qwen/Qwen3-4B", "construction"),
     ("qwen3-illustrator-4b", "Qwen/Qwen3-4B", "construction"),
     ("qwen3-illustrator", "Qwen/Qwen3-1.7B", "construction"),
     ("qwen3-pgf-geotikz", "Qwen/Qwen3-0.6B", "narrow"),
@@ -131,6 +134,9 @@ patterns.meta,backgrounds,fit,math,3d,perspective}
 
 app = modal.App(APP_NAME)
 outputs_vol = modal.Volume.from_name("geotikz-outputs", create_if_missing=True)
+# Small writable Volume for user-saved examples (survives restarts/redeploys).
+# NOTE: separate from the read-only adapter Volume; does NOT touch training data.
+data_vol = modal.Volume.from_name("geotikz-copilot-data", create_if_missing=True)
 
 # GPU image: just the inference stack (mirrors the illustrator-4b modal script).
 gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
@@ -239,6 +245,7 @@ class Specialist:
 @app.function(
     image=web_image,
     secrets=[modal.Secret.from_name(SECRET_NAME)],
+    volumes={"/examples": data_vol},  # persist user-saved examples
     max_containers=1,      # gradio needs sticky sessions -> one web container
     scaledown_window=600,  # keep the UI warm 10 min after last request
     timeout=600,
@@ -271,7 +278,7 @@ def web():
     # Wire the injected specialist to the GPU class; remember the adapter that
     # actually served so attribution is accurate even after a fallback.
     specialist = Specialist()
-    holder = {"label": "`qwen3-illustrator-4b` (specialist · Modal GPU)"}
+    holder = {"label": "`qwen3-illustrator-4b-v2` (specialist · Modal GPU)"}
 
     def specialist_fn(description: str) -> str:
         res = specialist.generate.remote(description)
@@ -304,6 +311,8 @@ def web():
         intro_md=intro,
         specialist_default=True,  # cloud: try the GPU specialist first for text scenes
         specialist_toggle_label="Use the GPU specialist first (Modal)",
+        examples_store_path="/examples/user_examples.json",  # on the persistent Volume
+        commit_examples=data_vol.commit,  # persist saved examples across restarts
     )
     web_app = mount_gradio_app(FastAPI(), blocks, path="/", allowed_paths=[OUT_DIR])
     if not auth_off:
