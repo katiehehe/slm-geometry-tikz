@@ -1,6 +1,8 @@
 # Geometry → TikZ: a one-week specialist, end to end
 
-**What I built.** A small open model that turns coordinate-free geometry scenes into compiling TikZ/PGF figures, plus a live **Geometry Figure Copilot** (specialist + frontier fallback, screenshot/PDF in, conversational edits, interactive drag board).
+**What I built.** A small open model that turns coordinate-free geometry scenes into compiling TikZ/PGF figures, plus a live **Geometry Figure Copilot** (specialist + frontier fallback, screenshot/PDF in, conversational edits, interactive drag board).[^pgf-opus]
+
+[^pgf-opus]: **PGF** is the engine under TikZ; “PGF constructions” means emitting `calc`/intersection macros so LaTeX does the arithmetic instead of the small model inventing coordinates (the pivot that took foot-of-altitude from ~2% → ~98%). **Opus** in comparisons is Claude Opus 4.8 via gateway id `claude-group/claude-opus-4-8`.
 
 > **Thesis.** You can make a small open model *reliably* do one narrow thing by controlling its training data — and **how you frame the target** (compute the answer vs. emit the construction) matters more than model size or dataset size.
 
