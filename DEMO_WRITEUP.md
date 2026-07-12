@@ -4,7 +4,7 @@
 
 > **Thesis.** You can make a small open model *reliably* do one narrow thing by controlling its training data — and **how you frame the target** (compute the answer vs. emit the construction) matters more than model size or dataset size.
 
-**Live demo:** [Geometry Figure Copilot](https://katie-he--geotikz-copilot-web.modal.run) (Modal; may be stopped when idle to save credits — redeploy with `modal deploy scripts/copilot_modal.py` if needed) · Full evidence: [`WRITEUP.md`](WRITEUP.md) · Spec: [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md)
+**Live demo:** [Geometry Figure Copilot](https://katie-he--geotikz-copilot-web.modal.run) (Modal custom chat SPA; auth `demo` / `geotikz-gpu-8t3n`; stop when idle to save credits — redeploy with `modal deploy scripts/copilot_modal.py` if needed) · Full evidence: [`WRITEUP.md`](WRITEUP.md) · Spec: [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md)
 
 ---
 
@@ -160,11 +160,13 @@ Base still scores **0.000** on the PGF eval — so this is a genuine trained beh
 
 ## 6. Website / Geometry Figure Copilot
 
-The specialist became a product: a Gradio chat app on Modal — text or screenshot/PDF in → figure + TikZ, then conversational edits (“make it bigger,” “rename the labels”).
+The specialist became a product: a **custom chat SPA** on Modal (`web/` + `src/geotikz/webapp.py`) — text or screenshot/PDF in → figure + TikZ, then conversational edits (“make it bigger,” “rename the labels”). The right pane has **Figure | Interactive | TikZ** tabs (rendered preview, drag board, copyable source).
 
-**Live:** https://katie-he--geotikz-copilot-web.modal.run *(may be stopped when idle)*
+**Live:** https://katie-he--geotikz-copilot-web.modal.run *(auth: `demo` / `geotikz-gpu-8t3n`; stop when idle to save credits)*
 
-![Deployed copilot home](outputs/copilot_deploy_proof/live_home.png)
+![Custom copilot SPA](outputs/renders/copilot_web_screenshot.png)
+
+![Deployed copilot home (earlier Gradio surface)](outputs/copilot_deploy_proof/live_home.png)
 
 Routing today:
 
@@ -274,7 +276,7 @@ v2 is **promoted** in the live Modal app (`scripts/copilot_modal.py` loads `qwen
 
 | Surface | What it does |
 | :-- | :-- |
-| **Copilot** | [modal.run](https://katie-he--geotikz-copilot-web.modal.run) (may be idle-stopped) — specialist + frontier + edits + screenshots + clarify + interactive board (constraints + Apply board edits) + normalizer routing |
+| **Copilot** | [modal.run](https://katie-he--geotikz-copilot-web.modal.run) (custom SPA: Figure \| Interactive \| TikZ; auth demo / geotikz-gpu-8t3n; may be idle-stopped) — specialist + frontier + edits + screenshots + clarify + interactive board + normalizer routing |
 | **Worksheet generator** | Printable PDF + answer key, in-vocab figures |
 | **PGF specialist (0.6B)** | ~**98.9%** on in-domain construction eval |
 | **Illustrator 4B v2** | **98.1%** GT on expanded synthetic gate; **99.1%** paraphrase gate |

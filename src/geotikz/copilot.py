@@ -41,12 +41,13 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
-
-import gradio as gr
+from typing import TYPE_CHECKING, Callable
 
 from . import gateway, metrics, serve
 from .prompts import CONSTRUCTION_SYSTEM_PROMPT
+
+if TYPE_CHECKING:
+    import gradio as gr
 
 logger = logging.getLogger("geotikz.copilot")
 
@@ -494,7 +495,7 @@ def generate_text(
             except Exception as e:  # noqa: BLE001 - specialist down -> frontier
                 logger.warning("specialist failed after retries: %s", e)
             if spec_tikz:
-                # Tidy the specialist's labels (push outward + white halo) for legibility;
+                # Tidy the specialist's labels (push outward, no fill) for legibility;
                 # if the tidied figure doesn't compile, fall back to the ORIGINAL so this
                 # aesthetic pass can never break a figure.
                 tidied = serve.tidy_labels(spec_tikz)
@@ -1455,8 +1456,11 @@ def build_ui(
     specialist_toggle_label: str = "Try the specialist first",
     examples_store_path: str | Path | None = None,
     commit_examples: Callable[[], None] | None = None,
-) -> gr.Blocks:
-    """Build the copilot Gradio app.
+):
+    """Build the copilot Gradio app (optional / local).
+
+    Prefer ``geotikz.webapp.create_app`` for the custom website (Modal deploy).
+    This Gradio UI remains for local ``scripts/copilot.py --gradio``.
 
     ``specialist_fn`` is the injected backend: ``description -> tikz_text``. When
     ``None`` the specialist toggle is hidden and everything runs frontier-first.
@@ -1464,6 +1468,8 @@ def build_ui(
     ``._geo_auth`` / ``._geo_out_dir`` so the caller can apply them at
     ``launch()`` / ``mount_gradio_app()`` time (auth cannot be bound at build).
     """
+    import gradio as gr
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     frontier_models = frontier_models or FRONTIER_MODELS
@@ -1578,15 +1584,25 @@ def build_ui(
                             specialist_fn=specialist_fn, specialist_label=specialist_label, out_dir=out_dir)
         return _apply(res, history, current_tikz, current_png, pend_kind="scene", pend_text=message)
 
+    def _is_pdf(path) -> bool:
+        return bool(path) and str(path).lower().endswith(".pdf")
+
     # -- STEP 1 (fast): echo the user's turn instantly + a '…drawing…' placeholder --
-    def echo_send(message, image, history):
+    def echo_send(message, attachment, history):
+        """Echo chat turn; ``attachment`` is an image or PDF filepath (or None)."""
         message = (message or "").strip()
-        if not message and not image:  # nothing submitted -> no echo
-            return (history or []), message, image, message, image
-        user_turn = ("🖼️ (screenshot)" + (f" — {message}" if message else "")) if image else message
+        if not message and not attachment:  # nothing submitted -> no echo
+            return (history or []), message, attachment, message, attachment
+        if attachment and _is_pdf(attachment):
+            user_turn = "📄 (PDF upload)" + (f" — {message}" if message else "")
+        elif attachment:
+            user_turn = "🖼️ (screenshot)" + (f" — {message}" if message else "")
+        else:
+            user_turn = message
         h = (history or []) + [{"role": "user", "content": user_turn},
                                {"role": "assistant", "content": _THINKING}]
-        return h, "", None, message, image  # clear msg+img; stash originals for step 2
+        # Clear msg + file; stash originals for step 2.
+        return h, "", None, message, attachment
 
     def echo_example(selected, history):
         if not selected:
@@ -1600,16 +1616,14 @@ def build_ui(
         return (history or []) + [{"role": "user", "content": "📋 (pasted TikZ)"},
                                   {"role": "assistant", "content": _THINKING}]
 
-    def echo_pdf(pdf_path, history):
-        if not pdf_path:
-            return history or []
-        return (history or []) + [{"role": "user", "content": "📄 (PDF upload)"},
-                                  {"role": "assistant", "content": _THINKING}]
-
     # -- STEP 2 (generation): fill in the reply; catch-all so it never surfaces an error --
-    def gen_send(history, current_tikz, current_png, use_specialist, frontier_model, pending, message, image):
+    def gen_send(history, current_tikz, current_png, use_specialist, frontier_model, pending, message, attachment):
         try:
-            return _generate_impl(message, image, history, current_tikz, current_png,
+            if attachment and _is_pdf(attachment):
+                vmodel = frontier_model if frontier_model in vision_models else vision_models[0]
+                res = generate_pdf(attachment, vmodel, out_dir=out_dir)
+                return _apply(res, history or [], current_tikz, current_png, pend_kind=None)
+            return _generate_impl(message, attachment, history, current_tikz, current_png,
                                   use_specialist, frontier_model, pending)
         except Exception:  # noqa: BLE001
             logger.exception("gen_send crashed")
@@ -1619,7 +1633,7 @@ def build_ui(
     def gen_example(selected, history, current_tikz, current_png, use_specialist, frontier_model, pending):
         if not selected:
             return _out(history or [], current_tikz, current_png,
-                        "_Pick an example above, then Generate._", pending)
+                        "_Pick an example, then Generate._", pending)
         try:
             return _generate_impl(selected, None, history, current_tikz, current_png,
                                   use_specialist, frontier_model, pending)
@@ -1745,74 +1759,91 @@ def build_ui(
             logger.exception("api_pdf crashed")
             return None, "", "Sorry — something hiccuped; please try again."
 
+    # Compact chat-first CSS: tighter composer row, less panel chrome.
+    _UI_CSS = """
+    #msg-box textarea { min-height: 52px !important; }
+    #composer-row { align-items: stretch; flex-wrap: nowrap !important; }
+    #attach-file { min-height: 0 !important; max-width: 160px; }
+    #attach-file .wrap, #attach-file .upload-container { min-height: 52px !important; }
+    #composer-btns { display: flex; flex-direction: column; gap: 6px; min-width: 88px; }
+    #fig-out img { max-height: 520px; object-fit: contain; }
+    """
+
     with gr.Blocks(title=title) as app:
         gr.Markdown(intro_md)
         cur_tikz = gr.State(None)   # last good TikZ (also the Code box content)
         cur_png = gr.State(None)    # last good figure PNG (preserved on failure)
         pending = gr.State(None)    # {"kind": "scene"|"edit", "text": ...} clarify context
         msg_hold = gr.State("")     # stashes the submitted message across the echo->gen chain
-        img_hold = gr.State(None)   # stashes the submitted image across the echo->gen chain
+        img_hold = gr.State(None)   # stashes the submitted attachment across the echo->gen chain
         with gr.Row():
-            with gr.Column(scale=1):
-                # Gradio 6 dropped the ``type`` arg: messages format (role/content
-                # dicts) is the ONLY accepted shape (see _append_turn).
-                chat = gr.Chatbot(label="Conversation", height=380)
-                msg = gr.Textbox(label="Message", lines=2, elem_id="msg-box",
-                                 placeholder="Describe a scene, or an edit — Enter to send, Shift+Enter for a new line")
-                with gr.Row():
-                    example_dd = gr.Dropdown(
-                        _dropdown_choices(_load_saved_examples(store_path)), value=None, scale=3,
-                        label="Example prompts (built-in + your saved ★)")
-                    example_btn = gr.Button("Generate", scale=1)
-                with gr.Row():
-                    save_ex_btn = gr.Button("★ Save current as example", size="sm")
-                    remove_ex_btn = gr.Button("Remove selected", size="sm")
-                ex_status = gr.Markdown("")
-                img = gr.Image(label="…or a screenshot of a problem", type="filepath")
-                with gr.Row():
-                    send = gr.Button("Send", variant="primary", elem_id="send-btn")
-                    reset = gr.Button("New figure")
-                with gr.Row():
+            # ── Left: chat + compact composer ────────────────────────────────
+            with gr.Column(scale=5, min_width=360):
+                # Gradio 6: messages format (role/content dicts) only (see _append_turn).
+                chat = gr.Chatbot(label="Conversation", height=460)
+                with gr.Row(elem_id="composer-row"):
+                    msg = gr.Textbox(
+                        label="Message", lines=2, elem_id="msg-box", scale=5, show_label=False,
+                        placeholder="Describe a scene or edit — Enter to send, Shift+Enter for a new line")
+                    attach_file = gr.File(
+                        label="Attach image/PDF",
+                        file_types=[".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf"],
+                        type="filepath", elem_id="attach-file", scale=2, height=52,
+                        file_count="single")
+                    with gr.Column(scale=1, min_width=88, elem_id="composer-btns"):
+                        send = gr.Button("Send", variant="primary", elem_id="send-btn")
+                        reset = gr.Button("New")
+                with gr.Accordion("Paste TikZ", open=False):
+                    paste_box = gr.Textbox(
+                        label="Paste a full tikzpicture", lines=5, show_label=False,
+                        placeholder="\\begin{tikzpicture} … \\end{tikzpicture}")
+                    paste_btn = gr.Button("Render & edit this TikZ", size="sm")
+                with gr.Accordion("Examples", open=False):
+                    with gr.Row():
+                        example_dd = gr.Dropdown(
+                            _dropdown_choices(_load_saved_examples(store_path)), value=None, scale=3,
+                            label="Built-in + your saved ★", show_label=False)
+                        example_btn = gr.Button("Generate", scale=1)
+                    with gr.Row():
+                        save_ex_btn = gr.Button("★ Save current", size="sm")
+                        remove_ex_btn = gr.Button("Remove selected", size="sm")
+                    ex_status = gr.Markdown("")
+                with gr.Accordion("Settings", open=False):
                     use_spec = gr.Checkbox(label=specialist_toggle_label, value=specialist_default,
                                            visible=has_specialist)
                     model = gr.Dropdown(frontier_models, value=frontier_models[0],
                                         label="Frontier model")
-                with gr.Accordion("More input types", open=False):
-                    gr.Markdown("**Paste existing TikZ** — render it as-is and jump straight into the edit loop.")
-                    paste_box = gr.Textbox(
-                        label="Paste a full tikzpicture", lines=6,
-                        placeholder="\\begin{tikzpicture} … \\end{tikzpicture}")
-                    paste_btn = gr.Button("Render & edit this TikZ")
-                    gr.Markdown("**Upload a PDF** — page 1 is rasterised and read by the vision model.")
-                    pdf_in = gr.File(label="PDF of a problem", file_types=[".pdf"], type="filepath")
-                    pdf_btn = gr.Button("Read PDF → figure")
-                    gr.Markdown(
-                        "_More ideas (not built yet): multiple images / multi-part problems, "
-                        "Asymptote (.asy) import._")
-            with gr.Column(scale=1):
-                badge = gr.Markdown("_No figure yet._")
-                fig = gr.Image(label="Figure", type="filepath", elem_id="fig-out")
-                code = gr.Code(label="TikZ (editable / copyable)", language="latex")
 
-        with gr.Accordion("🖐 Interactive editor — drag points · resize circles · Apply board edits (beta)",
-                          open=True):
-            apply_board_btn = gr.Button(
-                "Apply board edits → figure / TikZ", variant="primary", elem_id="apply-board-btn")
-            gr.Markdown(
-                "_Drag free (magenta) points — constrained (red) points re-solve. "
-                "Then **Apply board edits** to update the Figure / TikZ / chat state._")
-            board = gr.HTML(_EMPTY_BOARD)
-            # Slot filled by `_APPLY_BOARD_JS` (iframe → postMessage → TikZ text).
-            board_tikz_hold = gr.Textbox(visible=False, elem_id="board-tikz-hold", value="")
+            # ── Right: figure + interactive editor (one tab away) ────────────
+            with gr.Column(scale=5, min_width=360):
+                badge = gr.Markdown("_No figure yet._")
+                with gr.Tabs():
+                    with gr.Tab("Figure"):
+                        fig = gr.Image(label="Figure", type="filepath", elem_id="fig-out",
+                                       show_label=False)
+                        with gr.Accordion("TikZ code", open=False):
+                            code = gr.Code(label="TikZ (editable / copyable)", language="latex",
+                                           show_label=False)
+                    with gr.Tab("Interactive"):
+                        apply_board_btn = gr.Button(
+                            "Apply board edits → figure / TikZ", variant="primary",
+                            elem_id="apply-board-btn")
+                        gr.Markdown(
+                            "_Drag free (magenta) points — constrained (red) points re-solve. "
+                            "Then **Apply board edits** to update the Figure / TikZ / chat state._")
+                        board = gr.HTML(_EMPTY_BOARD)
+                        # Slot filled by `_APPLY_BOARD_JS` (iframe → postMessage → TikZ text).
+                        board_tikz_hold = gr.Textbox(visible=False, elem_id="board-tikz-hold",
+                                                     value="")
 
         outputs = [chat, cur_tikz, cur_png, fig, code, badge, pending, board]
         # Two-step at every entry point: (1) echo the user turn instantly + clear
         # the input, then (2) .then(...) run generation (fills the assistant reply).
-        _echo_out = [chat, msg, img, msg_hold, img_hold]
+        _echo_out = [chat, msg, attach_file, msg_hold, img_hold]
         _gen_in = [chat, cur_tikz, cur_png, use_spec, model, pending, msg_hold, img_hold]
-        send.click(echo_send, [msg, img, chat], _echo_out).then(gen_send, _gen_in, outputs)
+        send.click(echo_send, [msg, attach_file, chat], _echo_out).then(gen_send, _gen_in, outputs)
         # Enter submits (msg.submit); Shift+Enter inserts a newline (_ENTER_JS on load).
-        msg.submit(echo_send, [msg, img, chat], _echo_out).then(gen_send, _gen_in, outputs)
+        msg.submit(echo_send, [msg, attach_file, chat], _echo_out).then(gen_send, _gen_in, outputs)
         # On each page load: wire Enter-to-send (js) and refresh the examples
         # dropdown from the persisted store (so saves show up without a restart).
         app.load(_refresh_examples, None, [example_dd], js=_ENTER_JS)
@@ -1829,8 +1860,6 @@ def build_ui(
         remove_ex_btn.click(do_remove, [example_dd], [example_dd, ex_status])
         paste_btn.click(echo_paste, [paste_box, chat], [chat]).then(
             gen_paste, [paste_box, chat, cur_tikz, cur_png, pending], outputs)
-        pdf_btn.click(echo_pdf, [pdf_in, chat], [chat]).then(
-            gen_pdf, [pdf_in, chat, cur_tikz, cur_png, model, pending], outputs)
 
         # Programmatic, State-free endpoints (kept out of the visual flow).
         api_desc = gr.Textbox(visible=False)
@@ -1857,4 +1886,5 @@ def build_ui(
 
     app._geo_auth = auth  # applied by the caller at launch()/mount time
     app._geo_out_dir = str(out_dir)
+    app._geo_css = _UI_CSS  # Gradio 6: pass to launch()/mount_gradio_app(css=...)
     return app

@@ -322,7 +322,8 @@ def compile_and_render(
 # label tidying (legibility) — used on the specialist route
 # --------------------------------------------------------------------------- #
 _LABELPOINTS_RE = re.compile(r"\\tkzLabelPoints(\[[^\]]*\])?\(([^()]*)\)")
-_HALO = "fill=white,fill opacity=0.82,text opacity=1,inner sep=1.5pt,rounded corners=1pt"
+# Extra separation so labels sit clear of strokes (no fill/halo behind text).
+_LABEL_SEP = "3pt"
 
 
 def _label_direction(name: str, pts: dict, cx: float, cy: float) -> str:
@@ -331,28 +332,29 @@ def _label_direction(name: str, pts: dict, cx: float, cy: float) -> str:
 
     p = pts.get(name)
     if not p:
-        return "above right"
+        return f"above right={_LABEL_SEP}"
     dx, dy = p[0] - cx, p[1] - cy
     if abs(dx) < 1e-6 and abs(dy) < 1e-6:
-        return "above right"
+        return f"above right={_LABEL_SEP}"
     a = math.degrees(math.atan2(dy, dx))  # -180..180
     for lo, d in [(-157.5, "left"), (-112.5, "below left"), (-67.5, "below"),
                   (-22.5, "below right"), (22.5, "right"), (67.5, "above right"),
                   (112.5, "above"), (157.5, "above left")]:
         if a < lo:
-            return d
-    return "left"
+            return f"{d}={_LABEL_SEP}"
+    return f"left={_LABEL_SEP}"
 
 
 def tidy_labels(tikz: str, *, timeout: int = 60) -> str:
     """Make tkz-euclide point labels legible: push each ``\\tkzLabelPoints`` label
-    radially OUTWARD (away from the figure centroid) and give it a white halo, so
-    labels don't collide with the strokes.
+    radially OUTWARD (away from the figure centroid) so labels avoid strokes.
 
-    Best-effort and non-destructive: this ONLY rewrites label placement/styling,
+    No white halo / background fill — text only, offset outside the shape.
+
+    Best-effort and non-destructive: this ONLY rewrites label placement,
     never geometry, and returns the ORIGINAL tikz unchanged if it can't safely
-    rewrite. Callers must still compile-check the result and fall back to the
-    original on any failure (belt-and-suspenders for the no-error guarantee).
+    rewrite (including when coords can't be extracted). Callers must still
+    compile-check the result and fall back to the original on any failure.
     """
     try:
         if not _LABELPOINTS_RE.search(tikz or ""):
@@ -367,7 +369,7 @@ def tidy_labels(tikz: str, *, timeout: int = 60) -> str:
             return tikz
 
         # True coords of every labeled point (handles tkzDef* derived points via a
-        # compile-extract read-back). If it can't, fall through to halo-only.
+        # compile-extract read-back). If it can't, leave labels untouched.
         pts: dict = {}
         try:
             from . import extract
@@ -377,25 +379,19 @@ def tidy_labels(tikz: str, *, timeout: int = 60) -> str:
         except Exception:  # noqa: BLE001
             pts = {}
 
-        if len(pts) >= 2:  # reposition outward + halo (plain tikz nodes)
-            cx = sum(p[0] for p in pts.values()) / len(pts)
-            cy = sum(p[1] for p in pts.values()) / len(pts)
+        if len(pts) < 2:
+            return tikz
 
-            def _repl(m):
-                ns = [n.strip() for n in m.group(2).split(",") if n.strip()]
-                return "\n  ".join(
-                    f"\\node[{_label_direction(n, pts, cx, cy)},{_HALO}] at ({n}) {{${n}$}};"
-                    for n in ns)
+        cx = sum(p[0] for p in pts.values()) / len(pts)
+        cy = sum(p[1] for p in pts.values()) / len(pts)
 
-            return _LABELPOINTS_RE.sub(_repl, tikz)
+        def _repl(m):
+            ns = [n.strip() for n in m.group(2).split(",") if n.strip()]
+            return "\n  ".join(
+                f"\\node[{_label_direction(n, pts, cx, cy)}] at ({n}) {{${n}$}};"
+                for n in ns)
 
-        # fallback: keep default positions, just add a white halo for legibility
-        def _halo(m):
-            opts = m.group(1)
-            inner = (opts[1:-1] + "," + _HALO) if opts else _HALO
-            return f"\\tkzLabelPoints[{inner}]({m.group(2)})"
-
-        return _LABELPOINTS_RE.sub(_halo, tikz)
+        return _LABELPOINTS_RE.sub(_repl, tikz)
     except Exception:  # noqa: BLE001 - never let tidying break the render path
         return tikz
 

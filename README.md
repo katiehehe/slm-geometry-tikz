@@ -102,9 +102,10 @@ screenshot of a problem** → figure + copyable TikZ, then **edit it conversatio
 specialist (optional) with a frontier fallback; **screenshots** route to a frontier
 **vision** model; **edits** route to a frontier model. **Every reply states which model
 produced it**, and any non-compiling figure gets one automatic self-repair pass.
+The shipped product UI is a **custom chat SPA** under [`web/`](web/) (Figure | Interactive | TikZ tabs), served by `src/geotikz/webapp.py` / `scripts/copilot.py`.
 
 ```bash
-uv run python scripts/copilot.py             # Gradio chat UI: text / screenshot in -> figure + TikZ, then edit
+uv run python scripts/copilot.py             # custom SPA: text / screenshot in -> figure + TikZ, then edit
 ```
 
 See [`EXAMPLES.md`](EXAMPLES.md) for copy‑pasteable prompts the local `qwen3-illustrator-4b`

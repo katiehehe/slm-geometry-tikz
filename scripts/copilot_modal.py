@@ -1,47 +1,41 @@
-"""Geometry Figure Copilot — HOSTED on Modal (one app, two functions).
+"""Geometry Figure Copilot — HOSTED on Modal (custom website + GPU specialist).
 
   modal serve  scripts/copilot_modal.py                 # ephemeral dev URL (live reload)
   modal deploy scripts/copilot_modal.py                 # PERSISTENT public URL
   modal run    scripts/copilot_modal.py::test_specialist  # smoke-test the GPU specialist
   modal app stop geotikz-copilot                        # tear the deployment down
 
-This ships the copilot as a real website with a GPU-served LOCAL SPECIALIST:
+This ships the copilot as a **custom** website (FastAPI + static SPA) with a
+GPU-served LOCAL SPECIALIST — no Gradio chrome:
 
   1. ``Specialist`` — a GPU class (A10G) that loads the fine-tuned specialist ONCE
      (base ``Qwen/Qwen3-4B`` + LoRA ``qwen3-illustrator-4b`` from the Volume
      ``geotikz-outputs``; falls back to the 1.7B then 0.6B adapter if the 4B one
      is missing) and exposes ``generate(description) -> {tikz, adapter, ...}``.
-     Uses the specialist's EXACT training prompt with ``enable_thinking=False``,
-     mirroring scripts/infer_illustrator_4b_modal.py. ``scaledown_window`` keeps
-     the container warm so we don't pay a cold start on every request.
+     Uses the specialist's EXACT training prompt with ``enable_thinking=False``.
+     ``scaledown_window`` keeps the container warm so we don't pay a cold start
+     on every request.
 
-  2. ``web`` — the shared Gradio app (``geotikz.copilot.build_ui``) mounted as a
-     Modal ASGI web endpoint. ``specialist_fn`` is wired to the GPU class, so a
-     winning specialist figure is attributed "qwen3-illustrator-4b (specialist ·
-     Modal GPU)". Gateway creds live in a Modal Secret (so frontier text/vision/
-     edits work in the cloud), and basic Gradio auth is ON by default.
+  2. ``web`` — FastAPI JSON/multipart APIs + the static chat SPA under ``web/``.
+     ``specialist_fn`` is wired to the GPU class, so a winning specialist figure is
+     attributed "qwen3-illustrator-4b (specialist · Modal GPU)". Gateway creds
+     live in a Modal Secret; HTTP Basic auth is ON by default.
 
 Everything is ADDITIVE: it imports the repo's ``src`` (mounted into the web
 image) and reuses the same routing/render/attribution core as the local app.
 
 --- Auth ---------------------------------------------------------------------
-Stateless HTTP **Basic auth** (ASGI middleware), NOT Gradio's login form: the
-browser shows its native username/password dialog and re-sends the credentials
-on every request, so auth survives container recycles (Gradio's in-memory login
-sessions did not -> that was the /gradio_api/upload 401). Creds come from the
+Stateless HTTP **Basic auth** (ASGI middleware). Creds come from the
 ``geotikz-copilot`` Secret (COPILOT_USER / COPILOT_PASSWORD; default demo/geotikz).
-  * change:  modal secret create geotikz-copilot COPILOT_USER=you COPILOT_PASSWORD=... \
+  * change:  modal secret create geotikz-copilot COPILOT_USER=you COPILOT_PASSWORD=... \\
                  OPENAI_BASE_URL=... OPENAI_API_KEY=... JUDGE_MODEL=... --force
   * disable: add COPILOT_AUTH=off to that Secret (or the env) and redeploy.
-  * gradio_client: pass Basic auth via headers, e.g.
-      Client(url, headers={"Authorization": "Basic " + b64(f"{u}:{p}")})
 
 --- Cost / access ------------------------------------------------------------
 The public URL spends BOTH gateway budget (frontier text/vision/edit calls) and
 Modal GPU time (the specialist). Auth gates access; ``modal app stop`` ends all
 spend. The GPU scales to zero after ``scaledown_window`` idle (a cold start adds
-model-load latency to the next specialist call); set ``min_containers=1`` on the
-class to keep it always-warm at the cost of 24/7 GPU.
+model-load latency to the next specialist call).
 """
 
 from __future__ import annotations
@@ -54,15 +48,11 @@ import modal
 # config
 # --------------------------------------------------------------------------- #
 APP_NAME = "geotikz-copilot"
-GPU = "A10G"  # 24GB: fits Qwen3-4B bf16 + KV for single-request inference. (L4 also works.)
-SECRET_NAME = "geotikz-copilot"  # gateway creds + gradio auth
+GPU = "A10G"  # 24GB: fits Qwen3-4B bf16 + KV for single-request inference.
+SECRET_NAME = "geotikz-copilot"
 OUT_DIR = "/tmp/geotikz-copilot"
 CACHE_DIR = "/root/.tectonic-cache"
 
-# Adapters tried in order (best coverage first). All live on the Volume
-# ``geotikz-outputs``; the first one present is loaded. v2 is the promoted
-# default (strictly dominates v1 on the coord-verified gate + harder families,
-# holds phrasing, and passed the real-AIME spot-check); v1 stays as fallback.
 ADAPTERS = [
     ("qwen3-illustrator-4b-v2", "Qwen/Qwen3-4B", "construction"),
     ("qwen3-illustrator-4b", "Qwen/Qwen3-4B", "construction"),
@@ -70,10 +60,6 @@ ADAPTERS = [
     ("qwen3-pgf-geotikz", "Qwen/Qwen3-0.6B", "narrow"),
 ]
 
-# The specialist's EXACT training prompts, embedded verbatim (the GPU image has
-# no geotikz install) — byte-for-byte in sync with geotikz.prompts. The 4B/1.7B
-# illustrators were trained with CONSTRUCTION_SYSTEM_PROMPT; the 0.6B pgf adapter
-# with the narrow SYSTEM_PROMPT.
 CONSTRUCTION_SYSTEM_PROMPT = (
     "You are a geometry-to-TikZ compiler for olympiad constructions. You are given "
     "a geometry scene: some base points are given by coordinates, and one or more "
@@ -113,9 +99,6 @@ NARROW_SYSTEM_PROMPT = (
 )
 USER_TEMPLATE = "Scene:\n{description}\n\nReturn the TikZ figure."
 
-# A prewarm doc exercising the SAME preamble the copilot renders with (tkz-euclide
-# + calc + friends). Compiling it at BUILD time bakes tectonic's package bundle
-# into the image so the first live compile isn't a multi-hundred-MB download.
 PREWARM_TEX = r"""\documentclass[tikz,border=6pt]{standalone}
 \usepackage{tkz-euclide}
 \usetikzlibrary{calc,angles,quotes,intersections,through,positioning,arrows,arrows.meta,%
@@ -134,11 +117,8 @@ patterns.meta,backgrounds,fit,math,3d,perspective}
 
 app = modal.App(APP_NAME)
 outputs_vol = modal.Volume.from_name("geotikz-outputs", create_if_missing=True)
-# Small writable Volume for user-saved examples (survives restarts/redeploys).
-# NOTE: separate from the read-only adapter Volume; does NOT touch training data.
 data_vol = modal.Volume.from_name("geotikz-copilot-data", create_if_missing=True)
 
-# GPU image: just the inference stack (mirrors the illustrator-4b modal script).
 gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "torch>=2.12.1",
     "transformers>=5.13.0",
@@ -146,23 +126,20 @@ gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "accelerate>=1.14.0",
 )
 
-# Web image: Gradio + gateway client + PDF raster + tectonic, with the TeX bundle
-# prewarmed and the repo ``src`` mounted for ``geotikz``. tectonic comes from
-# conda-forge (via micromamba): it's self-contained, so we sidestep the drop-sh
-# build's glibc/shared-lib requirements on Debian.
 _prewarm_b64 = base64.b64encode(PREWARM_TEX.encode()).decode()
 web_image = (
     modal.Image.micromamba(python_version="3.12")
     .micromamba_install("tectonic", channels=["conda-forge"])
     .pip_install(
-        "gradio==6.20.0",  # PINNED: match local (pyproject) so UI behaves identically
         "fastapi[standard]",
         "python-multipart",
+        "uvicorn[standard]",
         "openai>=2.44.0",
         "pymupdf>=1.28.0",
         "pillow>=12.3.0",
         "numpy>=2.5.1",
         "python-dotenv>=1.2.2",
+        "pydantic>=2.0.0",
     )
     .env({"TECTONIC_CACHE_DIR": CACHE_DIR})
     .run_commands(
@@ -171,6 +148,7 @@ web_image = (
         "cd /root && tectonic -X compile --outfmt pdf warm.tex && echo PREWARM_DONE",
     )
     .add_local_dir("src", remote_path="/root/src")
+    .add_local_dir("web", remote_path="/root/web")
 )
 
 
@@ -181,7 +159,7 @@ web_image = (
     image=gpu_image,
     gpu=GPU,
     volumes={"/outputs": outputs_vol},
-    scaledown_window=300,  # keep warm 5 min after last call (cut cold starts)
+    scaledown_window=300,
     timeout=600,
 )
 class Specialist:
@@ -240,17 +218,17 @@ class Specialist:
 
 
 # --------------------------------------------------------------------------- #
-# web endpoint (shared Gradio app, mounted as ASGI)
+# web endpoint (custom FastAPI + static SPA)
 # --------------------------------------------------------------------------- #
 @app.function(
     image=web_image,
     secrets=[modal.Secret.from_name(SECRET_NAME)],
-    volumes={"/examples": data_vol},  # persist user-saved examples
-    max_containers=1,      # gradio needs sticky sessions -> one web container
-    scaledown_window=600,  # keep the UI warm 10 min after last request
+    volumes={"/examples": data_vol},
+    max_containers=1,
+    scaledown_window=600,
     timeout=600,
 )
-@modal.concurrent(max_inputs=100)  # many users share the one web container
+@modal.concurrent(max_inputs=100)
 @modal.asgi_app()
 def web():
     import os
@@ -258,25 +236,15 @@ def web():
 
     sys.path.insert(0, "/root/src")
 
-    # The micromamba image sets SSL_CERT_DIR=/etc/ssl/certs, which httpx (openai's
-    # transport) can't verify the gateway against -> APIConnectionError on every
-    # frontier call. Point TLS at certifi's bundle so frontier text/vision/edits
-    # work in the cloud. (The GPU specialist uses Modal RPC, not httpx, so it was
-    # unaffected.)
     import certifi
 
     os.environ["SSL_CERT_FILE"] = certifi.where()
     os.environ.pop("SSL_CERT_DIR", None)
 
-    from fastapi import FastAPI
-    from gradio.routes import mount_gradio_app
-
-    from geotikz import copilot
+    from geotikz.webapp import create_app
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    # Wire the injected specialist to the GPU class; remember the adapter that
-    # actually served so attribution is accurate even after a fallback.
     specialist = Specialist()
     holder = {"label": "`qwen3-illustrator-4b-v2` (specialist · Modal GPU)"}
 
@@ -287,50 +255,27 @@ def web():
             return res.get("tikz", "")
         return res or ""
 
-    # Auth: ON by default (creds from the Secret; demo/geotikz fallback).
-    # We use STATELESS HTTP Basic auth (middleware) instead of Gradio's login
-    # form: Gradio keeps sessions in a per-process in-memory dict, so every
-    # browser cookie 401s after a container recycle (that was the upload bug).
-    # Basic auth is re-sent by the browser on every request, so it survives
-    # scaledown / redeploy with no re-login.
     user = os.environ.get("COPILOT_USER", "demo")
     pwd = os.environ.get("COPILOT_PASSWORD", "geotikz")
     auth_off = os.environ.get("COPILOT_AUTH", "on").strip().lower() in ("off", "0", "false", "no")
 
-    intro = (
-        "# Geometry Figure Copilot  ·  *hosted on Modal*\n"
-        "Describe a geometry scene, **upload a screenshot or PDF**, or **paste TikZ** → "
-        "get a **TikZ figure** (coordinate-free). Then **edit it by chat**. The GPU "
-        "specialist draws text scenes first; a frontier model handles vision, edits, "
-        "and any fallback. Each reply shows **which model** produced it."
-    )
-    blocks = copilot.build_ui(
+    return create_app(
         specialist_fn=specialist_fn,
         specialist_label=(lambda: holder["label"]),
         out_dir=OUT_DIR,
-        intro_md=intro,
-        specialist_default=True,  # cloud: try the GPU specialist first for text scenes
+        static_dir="/root/web",
+        specialist_default=True,
         specialist_toggle_label="Use the GPU specialist first (Modal)",
-        examples_store_path="/examples/user_examples.json",  # on the persistent Volume
-        commit_examples=data_vol.commit,  # persist saved examples across restarts
+        examples_store_path="/examples/user_examples.json",
+        commit_examples=data_vol.commit,
+        auth_user=None if auth_off else user,
+        auth_password=None if auth_off else pwd,
+        title="Geometry Figure Copilot",
     )
-    web_app = mount_gradio_app(FastAPI(), blocks, path="/", allowed_paths=[OUT_DIR])
-    if not auth_off:
-        copilot.add_basic_auth(web_app, user, pwd, realm="Geometry Figure Copilot")
-    return web_app
 
 
-# --------------------------------------------------------------------------- #
-# smoke test: one specialist call (latency + which adapter loaded)
-# --------------------------------------------------------------------------- #
 @app.function(image=web_image, secrets=[modal.Secret.from_name(SECRET_NAME)])
 def _gw_selftest() -> None:
-    """Diagnostic: confirm the WEB image can reach the frontier gateway.
-
-    Applies the same certifi TLS fix ``web()`` uses (the micromamba image's
-    SSL_CERT_DIR otherwise breaks httpx). Run: ``modal run
-    scripts/copilot_modal.py::gw_selftest``.
-    """
     import os
     import sys
 

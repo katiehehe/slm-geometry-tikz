@@ -1,21 +1,19 @@
-"""Geometry-figure copilot — LOCAL entry (frontier-first).
+"""Geometry-figure copilot — LOCAL entry (custom website by default).
 
-  uv run python scripts/copilot.py                 # open the printed local URL
+  uv run python scripts/copilot.py                 # FastAPI + SPA on http://127.0.0.1:7860
+  uv run python scripts/copilot.py --gradio        # legacy Gradio UI (deprecated)
   uv run python scripts/copilot.py --modal-specialist   # borrow the Modal GPU specialist
   uv run python scripts/copilot.py --auth me:secret     # password-protect the local app
-  uv run python scripts/copilot.py --share              # public gradio.live tunnel
 
-All the routing / rendering / attribution logic lives in the importable core
-``geotikz.copilot`` (shared with the hosted Modal app, ``scripts/copilot_modal.py``).
-This script only wires up a SPECIALIST BACKEND and launches the UI:
+All the routing / rendering / attribution logic lives in ``geotikz.copilot``
+(shared with the hosted Modal app). This script only wires up a SPECIALIST
+BACKEND and launches the UI:
 
   * default            -> the LOCAL base+LoRA specialist (``serve.Specialist``,
-    Qwen3-0.6B + qwen3-pgf-geotikz), loaded lazily on first use. Frontier-first:
-    the specialist toggle is OFF by default.
+    Qwen3-0.6B + qwen3-pgf-geotikz), loaded lazily on first use. Frontier-first
+    locally (specialist toggle OFF by default).
   * ``--modal-specialist`` -> route the specialist to the DEPLOYED Modal GPU
-    function instead, so you get "(specialist · Modal GPU)" attribution from the
-    laptop without the local model load. Frontier still covers vision + edits and
-    is the fallback if the specialist fails / degenerates.
+    function instead.
 
 Flow: TEXT scene -> specialist (if toggled) else frontier construction prompt;
 IMAGE/PDF -> frontier vision; PASTE TikZ -> render + edit loop; EDIT -> frontier.
@@ -31,10 +29,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from geotikz import copilot, serve  # noqa: E402
+from geotikz import serve  # noqa: E402
 
 MODAL_APP = "geotikz-copilot"
 MODAL_CLS = "Specialist"
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = ROOT / "web"
 
 
 def local_specialist_backend():
@@ -42,18 +42,14 @@ def local_specialist_backend():
     spec = serve.Specialist()
 
     def fn(description: str) -> str:
-        return spec.generate(description)  # raw text; the core extracts the tikz
+        return spec.generate(description)
 
     label = f"`{spec.base} + LoRA` (local specialist)"
     return fn, label
 
 
 def modal_specialist_backend():
-    """Route the specialist to the deployed Modal GPU function (no local load).
-
-    Requires ``modal deploy scripts/copilot_modal.py`` to have run (so the class
-    exists). Reports the ACTUAL adapter the GPU container loaded.
-    """
+    """Route the specialist to the deployed Modal GPU function (no local load)."""
     import modal
 
     spec = modal.Cls.from_name(MODAL_APP, MODAL_CLS)()
@@ -75,26 +71,56 @@ def main() -> None:
                     help="Use the deployed Modal GPU specialist instead of the local model.")
     ap.add_argument("--auth", default=None, metavar="USER:PASS",
                     help="Protect the local app with basic auth (default: none).")
+    ap.add_argument("--gradio", action="store_true",
+                    help="Launch the legacy Gradio UI instead of the custom website.")
     ap.add_argument("--share", action="store_true",
-                    help="Expose a temporary public gradio.live URL.")
+                    help="(Gradio only) Expose a temporary public gradio.live URL.")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=7860)
     args = ap.parse_args()
 
     if args.modal_specialist:
         specialist_fn, specialist_label = modal_specialist_backend()
         toggle = "Try the Modal-GPU specialist first"
+        specialist_default = True
     else:
         specialist_fn, specialist_label = local_specialist_backend()
         toggle = "Try the local specialist first (loads the model on first use)"
+        specialist_default = False
 
-    auth = tuple(args.auth.split(":", 1)) if args.auth else None  # type: ignore[assignment]
+    if args.gradio:
+        from geotikz import copilot
 
-    app = copilot.build_ui(
+        auth = tuple(args.auth.split(":", 1)) if args.auth else None  # type: ignore[assignment]
+        app = copilot.build_ui(
+            specialist_fn=specialist_fn,
+            specialist_label=specialist_label,
+            auth=auth,
+            specialist_toggle_label=toggle,
+            specialist_default=specialist_default,
+        )
+        app.launch(auth=app._geo_auth, share=args.share, allowed_paths=[app._geo_out_dir],
+                   css=getattr(app, "_geo_css", None))
+        return
+
+    import uvicorn
+    from geotikz.webapp import create_app
+
+    user = pwd = None
+    if args.auth:
+        user, _, pwd = args.auth.partition(":")
+
+    app = create_app(
         specialist_fn=specialist_fn,
         specialist_label=specialist_label,
-        auth=auth,
+        static_dir=STATIC,
+        specialist_default=specialist_default,
         specialist_toggle_label=toggle,
+        auth_user=user,
+        auth_password=pwd,
     )
-    app.launch(auth=app._geo_auth, share=args.share, allowed_paths=[app._geo_out_dir])
+    print(f"Geometry Figure Copilot → http://{args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

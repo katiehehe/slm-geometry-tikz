@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Geometry Figure Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <h1>Geometry Figure Copilot</h1>
+          <p>Describe · attach · edit · drag</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="ghost" id="btn-examples" aria-haspopup="true">Examples</button>
+        <button type="button" class="ghost" id="btn-settings" aria-haspopup="true">Settings</button>
+        <button type="button" class="ghost" id="btn-new">New</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="chat-pane" aria-label="Conversation">
+        <div class="chat-scroll" id="chat"></div>
+        <div class="composer">
+          <div class="composer-row">
+            <button type="button" class="icon-btn" id="btn-attach" title="Attach image or PDF" aria-label="Attach image or PDF">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            <input type="file" id="file-input" accept="image/*,.pdf,application/pdf" hidden />
+            <textarea id="message" rows="1" placeholder="Describe a geometry scene or edit the figure — Enter to send, Shift+Enter for newline"></textarea>
+            <button type="button" class="send" id="btn-send">Send</button>
+          </div>
+          <div class="attach-chip hidden" id="attach-chip">
+            <span id="attach-name"></span>
+            <button type="button" class="chip-x" id="btn-clear-attach" aria-label="Remove attachment">×</button>
+          </div>
+          <div class="composer-tools">
+            <button type="button" class="linkish" id="btn-paste-toggle">Paste TikZ</button>
+            <button type="button" class="linkish" id="btn-save-example">★ Save prompt</button>
+          </div>
+          <div class="paste-panel hidden" id="paste-panel">
+            <textarea id="paste-tikz" rows="5" placeholder="\begin{tikzpicture} … \end{tikzpicture}"></textarea>
+            <button type="button" class="secondary" id="btn-paste-render">Render &amp; edit</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="figure-pane" aria-label="Figure">
+        <div class="badge-row">
+          <span class="badge" id="badge">No figure yet</span>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" role="tab" data-tab="figure" aria-selected="true">Figure</button>
+          <button type="button" class="tab" role="tab" data-tab="interactive" aria-selected="false">Interactive</button>
+          <button type="button" class="tab" role="tab" data-tab="tikz" aria-selected="false">TikZ</button>
+        </div>
+        <div class="tab-panels">
+          <div class="tab-panel active" id="panel-figure" role="tabpanel">
+            <div class="figure-stage" id="figure-stage">
+              <p class="empty-hint">Your figure will appear here.</p>
+            </div>
+          </div>
+          <div class="tab-panel" id="panel-interactive" role="tabpanel" hidden>
+            <div class="board-toolbar">
+              <button type="button" class="secondary" id="btn-apply-board">Apply board edits</button>
+              <span class="hint">Drag free points · constrained points re-solve · then Apply</span>
+            </div>
+            <div class="board-host" id="board-host"></div>
+          </div>
+          <div class="tab-panel" id="panel-tikz" role="tabpanel" hidden>
+            <textarea id="tikz-code" class="tikz-code" spellcheck="false" placeholder="TikZ appears here after a figure is drawn."></textarea>
+            <button type="button" class="secondary" id="btn-copy-tikz">Copy TikZ</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Examples menu -->
+  <div class="menu-backdrop hidden" id="examples-backdrop"></div>
+  <div class="menu panel hidden" id="examples-menu" role="dialog" aria-label="Examples">
+    <header>
+      <h2>Examples</h2>
+      <button type="button" class="icon-btn" id="btn-examples-close" aria-label="Close">×</button>
+    </header>
+    <ul id="examples-list"></ul>
+    <footer>
+      <button type="button" class="secondary danger" id="btn-remove-example" disabled>Remove selected ★</button>
+    </footer>
+  </div>
+
+  <!-- Settings menu -->
+  <div class="menu-backdrop hidden" id="settings-backdrop"></div>
+  <div class="menu panel hidden" id="settings-menu" role="dialog" aria-label="Settings">
+    <header>
+      <h2>Settings</h2>
+      <button type="button" class="icon-btn" id="btn-settings-close" aria-label="Close">×</button>
+    </header>
+    <label class="field" id="specialist-field">
+      <input type="checkbox" id="use-specialist" checked />
+      <span id="specialist-label">Use the GPU specialist first</span>
+    </label>
+    <label class="field stacked">
+      <span>Frontier model</span>
+      <select id="frontier-model"></select>
+    </label>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
