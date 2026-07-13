@@ -18,7 +18,7 @@
   % Side lengths — kept clear of point labels S / U / T
   \node[left] at (-6,40) {$90$};
   \node[below] at (95,-8) {$120$};
-  \node[above right] at (78,48) {$150$};
+  \node[above right] at (100,32) {$150$};
 
   % Construction segments
   \draw[blue!70!black, very thick] (S) -- (T);
@@ -29,9 +29,9 @@
   \draw[orange!85!black, thick] (C2) circle (15);
   \draw[purple!80!black, thick] (C3) circle (10);
 
-  % Distance between C2 and C3 centers — offset below the chord
+  % Distance between C2 and C3 centers — open interior, clear of sides
   \draw[dashed, gray!70!black] (C3) -- (C2);
-  \node[gray!70!black] at (68,55) {$\sqrt{10n}$};
+  \node[gray!70!black] at (50,52) {$\sqrt{10n}$};
 
   % Right-angle marks
   \draw (0,6) -- (6,6) -- (6,0);
