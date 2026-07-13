@@ -17,8 +17,8 @@
 
   % Side lengths — kept clear of point labels S / U / T
   \node[left] at (-6,40) {$90$};
-  \node[below] at (75,-8) {$120$};
-  \node[above right] at (70,54) {$150$};
+  \node[below] at (55,-8) {$120$};
+  \node[above right] at (62,58) {$150$};
 
   % Construction segments
   \draw[blue!70!black, very thick] (S) -- (T);
@@ -31,7 +31,7 @@
 
   % Distance between C2 and C3 centers — nudged left of the clutter
   \draw[dashed, gray!70!black] (C3) -- (C2);
-  \node[gray!70!black] at (42,40) {$\sqrt{10n}$};
+  \node[gray!70!black] at (32,38) {$\sqrt{10n}$};
 
   % Right-angle marks
   \draw (0,6) -- (6,6) -- (6,0);
@@ -49,11 +49,11 @@
   \node[below left] at (S) {$S$};
   \node[above right] at (T) {$T$};
   \node[left] at (U) {$U$};
-  \node at (48,70) {$V$};
+  \node at (52,74) {$V$};
 
   % Circle names — small nudges only
-  \node[green!55!black] at (22,30) {$C_1$};
-  \node[orange!85!black] at (82,6) {$C_2$};
+  \node[green!55!black] at (18,28) {$C_1$};
+  \node[orange!85!black] at (86,10) {$C_2$};
   \node[purple!80!black] at (24,78) {$C_3$};
 
   \node[anchor=west] at (78,84) {$n=725$};
