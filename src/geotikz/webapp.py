@@ -424,7 +424,10 @@ def create_app(
                 return FileResponse(index, media_type="text/html")
             return HTMLResponse("<h1>Geometry Figure Copilot</h1><p>Static UI missing.</p>")
 
-        app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
+        # Prefer web/assets/ at /assets/… so eval images and brand files ship cleanly.
+        assets_dir = static_dir / "assets"
+        mount_dir = assets_dir if assets_dir.is_dir() else static_dir
+        app.mount("/assets", StaticFiles(directory=mount_dir), name="assets")
 
         # Also serve css/js from root of static_dir for simple relative paths.
         @app.get("/styles.css")

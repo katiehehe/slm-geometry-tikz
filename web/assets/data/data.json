@@ -1,0 +1,358 @@
+{
+  "title": "Dataset",
+  "subtitle": "How the training data was formed, and exact split / family distributions from the committed JSONL files.",
+  "pipeline": [
+    "Synthetic scene generator (`scene.py` / `generator.py` / `olympiad_ext.py`) builds each example forward from exact coordinates, then strips those coordinates so the model input is relationships only.",
+    "Labels are TikZ emission in one of two targets: v1 numeric (literal coordinates) or v2 PGF constructions (`calc` / polar / tkz-euclide) so LaTeX does the arithmetic.",
+    "Every label is validated by the compile + coordinate gate (figure-only TikZ, tectonic compile, named points within \u22480.05 of ground truth). Splits are disjoint at build time.",
+    "Illustrator data adds frontier distillation (`distill.py`) hard-filtered by compile + vision judge, plus broader synthetic families and paraphrases (v2 expands harder constructions)."
+  ],
+  "split_table": [
+    {
+      "split": "train.jsonl (v1 numeric)",
+      "rows": 5340,
+      "role": "SFT \u2014 numeric target"
+    },
+    {
+      "split": "eval.jsonl (v1 numeric)",
+      "rows": 800,
+      "role": "Held-out numeric gate / frontier sweep grid"
+    },
+    {
+      "split": "train_pgf.jsonl (v2 PGF)",
+      "rows": 2050,
+      "role": "SFT \u2014 construction target"
+    },
+    {
+      "split": "eval_pgf.jsonl (v2 PGF)",
+      "rows": 280,
+      "role": "Held-out PGF gate"
+    },
+    {
+      "split": "golden_set.jsonl",
+      "rows": 150,
+      "role": "Curated showcase (construction)"
+    },
+    {
+      "split": "olympiad_eval.jsonl",
+      "rows": 120,
+      "role": "Named-center litmus"
+    },
+    {
+      "split": "illustrator_train_chat.jsonl",
+      "rows": 3996,
+      "role": "Illustrator SFT v1"
+    },
+    {
+      "split": "illustrator_train_chat_v2.jsonl",
+      "rows": 8852,
+      "role": "Illustrator SFT v2 (more paraphrases / harder families)"
+    },
+    {
+      "split": "illustrator_syn_eval.jsonl",
+      "rows": 240,
+      "role": "Coord-verified synthetic eval"
+    },
+    {
+      "split": "illustrator_syn_eval_v2.jsonl",
+      "rows": 360,
+      "role": "Expanded synthetic eval v2"
+    },
+    {
+      "split": "illustrator_paraphrase_eval.jsonl",
+      "rows": 228,
+      "role": "Paraphrase robustness"
+    },
+    {
+      "split": "distill_illustrator.jsonl",
+      "rows": 1099,
+      "role": "Teacher-distilled competition pairs"
+    }
+  ],
+  "numeric_vs_pgf": [
+    {
+      "target": "v1 numeric train",
+      "rows": 5340,
+      "irregular_pct": 83.1,
+      "chain_4_5_pct": 78.1
+    },
+    {
+      "target": "v2 PGF train",
+      "rows": 2050,
+      "irregular_pct": 92.7,
+      "chain_4_5_pct": 75.6
+    },
+    {
+      "target": "v1 numeric eval",
+      "rows": 800,
+      "irregular_pct": 65.0,
+      "chain_4_5_pct": null
+    },
+    {
+      "target": "v2 PGF eval",
+      "rows": 280,
+      "irregular_pct": 100.0,
+      "chain_4_5_pct": 75.0
+    }
+  ],
+  "tag_tables": {
+    "train_numeric": [
+      {
+        "op": "point_on_circle",
+        "count": 9582
+      },
+      {
+        "op": "midpoint",
+        "count": 3157
+      },
+      {
+        "op": "reflect_y",
+        "count": 2590
+      },
+      {
+        "op": "foot_altitude",
+        "count": 2505
+      },
+      {
+        "op": "reflect_x",
+        "count": 2351
+      },
+      {
+        "op": "intersection",
+        "count": 1325
+      }
+    ],
+    "train_pgf": [
+      {
+        "op": "point_on_circle",
+        "count": 3548
+      },
+      {
+        "op": "foot_altitude",
+        "count": 1087
+      },
+      {
+        "op": "midpoint",
+        "count": 1022
+      },
+      {
+        "op": "reflect_y",
+        "count": 983
+      },
+      {
+        "op": "reflect_x",
+        "count": 802
+      },
+      {
+        "op": "intersection",
+        "count": 558
+      }
+    ],
+    "olympiad": [
+      {
+        "op": "circumcenter",
+        "count": 15
+      },
+      {
+        "op": "incenter",
+        "count": 15
+      },
+      {
+        "op": "orthocenter",
+        "count": 15
+      },
+      {
+        "op": "centroid",
+        "count": 15
+      },
+      {
+        "op": "angle_bisector",
+        "count": 15
+      },
+      {
+        "op": "foot_altitude",
+        "count": 15
+      },
+      {
+        "op": "median",
+        "count": 15
+      },
+      {
+        "op": "tangent",
+        "count": 15
+      }
+    ],
+    "illustrator_syn_v2": [
+      {
+        "op": "circumcenter",
+        "count": 12
+      },
+      {
+        "op": "incenter",
+        "count": 12
+      },
+      {
+        "op": "orthocenter",
+        "count": 12
+      },
+      {
+        "op": "centroid",
+        "count": 12
+      },
+      {
+        "op": "angle_bisector",
+        "count": 12
+      },
+      {
+        "op": "foot_altitude",
+        "count": 12
+      },
+      {
+        "op": "median",
+        "count": 12
+      },
+      {
+        "op": "tangent",
+        "count": 12
+      },
+      {
+        "op": "line_intersection",
+        "count": 12
+      },
+      {
+        "op": "cevian_intersection",
+        "count": 12
+      },
+      {
+        "op": "midsegment",
+        "count": 12
+      },
+      {
+        "op": "midpoint_segment",
+        "count": 12
+      },
+      {
+        "op": "parallelogram",
+        "count": 12
+      },
+      {
+        "op": "foot_perp",
+        "count": 12
+      },
+      {
+        "op": "reflection_line",
+        "count": 12
+      },
+      {
+        "op": "rotation",
+        "count": 12
+      },
+      {
+        "op": "square",
+        "count": 12
+      },
+      {
+        "op": "regular_polygon",
+        "count": 12
+      },
+      {
+        "op": "two_circles",
+        "count": 12
+      },
+      {
+        "op": "antipode",
+        "count": 12
+      },
+      {
+        "op": "euler_line",
+        "count": 10
+      },
+      {
+        "op": "nine_point_center",
+        "count": 10
+      },
+      {
+        "op": "medial_triangle",
+        "count": 10
+      },
+      {
+        "op": "orthic_triangle",
+        "count": 10
+      },
+      {
+        "op": "incircle_contact",
+        "count": 10
+      },
+      {
+        "op": "bisector_incenter",
+        "count": 10
+      },
+      {
+        "op": "three_medians",
+        "count": 10
+      },
+      {
+        "op": "parallelogram_center",
+        "count": 10
+      },
+      {
+        "op": "midpoint_reflect_chain",
+        "count": 10
+      },
+      {
+        "op": "circumcircle_antipode",
+        "count": 10
+      },
+      {
+        "op": "square_center",
+        "count": 10
+      },
+      {
+        "op": "reflect_ortho_over_side",
+        "count": 10
+      }
+    ]
+  },
+  "images": [
+    {
+      "src": "data_composition.png",
+      "alt": "Dataset composition overview plot",
+      "caption": "Existing composition plot from analyze_dataset.py"
+    },
+    {
+      "src": "split_sizes.png",
+      "alt": "Bar chart of dataset split sizes",
+      "caption": "Exact split sizes across numeric, PGF, and illustrator datasets"
+    },
+    {
+      "src": "ops_train_numeric.png",
+      "alt": "Bar chart of construction tags in numeric train",
+      "caption": "v1 numeric train \u2014 tag occurrences (a row can have multiple tags)"
+    },
+    {
+      "src": "ops_train_pgf.png",
+      "alt": "Bar chart of construction tags in PGF train",
+      "caption": "v2 PGF train \u2014 tag occurrences"
+    },
+    {
+      "src": "chain_distribution.png",
+      "alt": "Chain length histograms for numeric and PGF train",
+      "caption": "Difficulty dial: chain length (derivation depth)"
+    },
+    {
+      "src": "irregular_split.png",
+      "alt": "Stacked bars of irregular vs round numbers",
+      "caption": "Difficulty dial: irregular vs round numbers"
+    },
+    {
+      "src": "ops_olympiad.png",
+      "alt": "Olympiad eval construction family counts",
+      "caption": "Olympiad eval \u2014 named constructions"
+    },
+    {
+      "src": "ops_illustrator_syn_v2.png",
+      "alt": "Illustrator synthetic eval v2 family counts",
+      "caption": "Illustrator syn eval v2 \u2014 construction families"
+    }
+  ]
+}

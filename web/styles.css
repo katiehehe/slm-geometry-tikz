@@ -372,6 +372,208 @@ body {
   resize: vertical;
 }
 
+/* Scrollable report tabs (Evals / Data) */
+.report-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 28px;
+  scroll-behavior: smooth;
+}
+.report-hero {
+  margin: 0 0 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.report-hero h2 {
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.report-hero p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+.report-section {
+  margin: 0 0 22px;
+  animation: fadein 0.35s ease;
+}
+.report-section h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.report-section .caption {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 68ch;
+}
+.report-pipeline {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-pipeline li {
+  position: relative;
+  padding: 10px 12px 10px 36px;
+  background: rgba(215, 239, 230, 0.35);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.report-pipeline li::before {
+  content: attr(data-step);
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+}
+.report-figure {
+  margin: 0 0 14px;
+}
+.report-figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.report-figure figcaption {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.report-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+.report-table th,
+.report-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.report-table th {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper-2);
+  white-space: nowrap;
+}
+.report-table td {
+  color: var(--ink-soft);
+}
+.report-table tr:last-child td { border-bottom: 0; }
+.report-table .num {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.report-table .hi {
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+.report-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+.report-gallery figure {
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.report-gallery img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background:
+    linear-gradient(90deg, rgba(201,213,206,0.25) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(rgba(201,213,206,0.25) 1px, transparent 1px) 0 0 / 12px 12px,
+    #fff;
+}
+.report-gallery figcaption {
+  padding: 4px 6px 6px;
+  font-size: 0.68rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-align: center;
+}
+.report-bullets {
+  margin: 0;
+  padding: 0 0 0 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-bullets li {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  max-width: 72ch;
+}
+.report-anchor {
+  color: var(--accent-deep);
+  font-weight: 600;
+  text-decoration: none;
+}
+.report-anchor:hover { text-decoration: underline; }
+.muted-cell {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.tabs {
+  flex-wrap: wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-section { animation: none; }
+  .report-scroll { scroll-behavior: auto; }
+}
+
 .menu-backdrop {
   position: fixed; inset: 0;
   background: rgba(20,32,28,0.28);

@@ -328,10 +328,276 @@ function setupTabs() {
   });
 }
 
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function reportTable(headers, rows) {
+  const thead = `<thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>`;
+  const body = rows
+    .map(
+      (cells) =>
+        `<tr>${cells
+          .map((c) => {
+            if (c && typeof c === "object") {
+              const cls = c.className ? ` class="${esc(c.className)}"` : "";
+              return `<td${cls}>${c.html != null ? c.html : esc(c.text)}</td>`;
+            }
+            return `<td>${esc(c)}</td>`;
+          })
+          .join("")}</tr>`
+    )
+    .join("");
+  return `<div class="report-table-wrap"><table class="report-table">${thead}<tbody>${body}</tbody></table></div>`;
+}
+
+function reportFigures(base, images) {
+  return (images || [])
+    .map(
+      (img) => `
+      <figure class="report-figure">
+        <img src="${esc(base + img.src)}" alt="${esc(img.alt || "")}" loading="lazy" />
+        ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ""}
+      </figure>`
+    )
+    .join("");
+}
+
+function renderModelsSection(models) {
+  if (!models) return "";
+  const rows = (models.rows || []).map((r) => {
+    const nameHtml =
+      r.anchor
+        ? `<a href="#${esc(r.anchor)}" class="report-anchor">${esc(r.name)}</a>`
+        : esc(r.name);
+    return [
+      { html: `<span class="num">${nameHtml}</span><br><span class="muted-cell">${esc(r.size)}</span>` },
+      r.purpose,
+      r.notes,
+    ];
+  });
+  return `
+    <section class="report-section" id="trained-models">
+      <h3>${esc(models.heading)}</h3>
+      <p class="caption">${esc(models.caption)}</p>
+      ${reportTable(["Model / size", "Purpose / role", "Notes"], rows)}
+    </section>`;
+}
+
+function renderIllustratorTraining(sec) {
+  if (!sec) return "";
+  const bullets = (sec.bullets || [])
+    .map((b) => `<li>${esc(b)}</li>`)
+    .join("");
+  return `
+    <section class="report-section" id="${esc(sec.id || "illustrator-training")}">
+      <h3>${esc(sec.heading)}</h3>
+      <p class="caption">${esc(sec.caption)}</p>
+      <ul class="report-bullets">${bullets}</ul>
+    </section>`;
+}
+
+function renderEvals(data) {
+  const root = $("#evals-root");
+  if (!root || !data) return;
+  const s = data.sections || {};
+  const EVAL = "/assets/evals/";
+
+  let html = `
+    <div class="report-hero">
+      <h2>${esc(data.title)}</h2>
+      <p>${esc(data.subtitle)}</p>
+    </div>
+    ${renderModelsSection(data.models)}
+    ${renderIllustratorTraining(data.illustrator_training)}
+  `;
+
+  if (s.specialist_arc) {
+    const rows = s.specialist_arc.rows.map((r) => [
+      r.model,
+      { text: r.pass_rate, className: "num hi" },
+      { text: r.counts, className: "num" },
+      r.source,
+    ]);
+    html += `
+      <section class="report-section">
+        <h3>${esc(s.specialist_arc.heading)}</h3>
+        <p class="caption">${esc(s.specialist_arc.caption)}</p>
+        ${reportTable(["Model / target", "Pass rate", "Counts", "Source"], rows)}
+      </section>`;
+  }
+
+  if (s.frontier_sweep) {
+    html += `
+      <section class="report-section">
+        <h3>${esc(s.frontier_sweep.heading)}</h3>
+        <p class="caption">${esc(s.frontier_sweep.caption)}</p>
+        ${reportFigures(EVAL, s.frontier_sweep.images)}
+      </section>`;
+  }
+
+  if (s.pgf) {
+    const urows = (s.pgf.utility_rows || []).map((r) => [
+      r.config,
+      { text: r.pass, className: "num hi" },
+      { text: r.compile, className: "num" },
+      r.note,
+    ]);
+    html += `
+      <section class="report-section">
+        <h3>${esc(s.pgf.heading)}</h3>
+        <p class="caption">${esc(s.pgf.caption)}</p>
+        ${reportFigures(EVAL, s.pgf.images)}
+        ${reportTable(["Config", "Pass", "Compile", "Note"], urows)}
+      </section>`;
+  }
+
+  if (s.frontier_table) {
+    const rows = s.frontier_table.rows.map((r) => [
+      r.model,
+      { text: r.pass_rate, className: "num" },
+      r.versus,
+    ]);
+    html += `
+      <section class="report-section">
+        <h3>${esc(s.frontier_table.heading)}</h3>
+        <p class="caption">${esc(s.frontier_table.caption)}</p>
+        ${reportTable(["Model", "Pass rate", "Versus specialist"], rows)}
+      </section>`;
+  }
+
+  if (s.aime) {
+    const rows = s.aime.rows.map((r) => [
+      r.system,
+      { text: r.compile, className: "num" },
+      { text: r.faithful, className: "num" },
+    ]);
+    const gallery = (s.aime.gallery || [])
+      .map(
+        (g) => `
+        <figure>
+          <img src="${esc(EVAL + g.src)}" alt="${esc(g.label)}" loading="lazy" />
+          <figcaption>${esc(g.label)}</figcaption>
+        </figure>`
+      )
+      .join("");
+    html += `
+      <section class="report-section">
+        <h3>${esc(s.aime.heading)}</h3>
+        <p class="caption">${esc(s.aime.caption)}</p>
+        ${reportTable(["System", "Compile", "Faithful"], rows)}
+        <div class="report-gallery">${gallery}</div>
+      </section>`;
+  }
+
+  root.innerHTML = html;
+  root.removeAttribute("aria-busy");
+}
+
+function renderData(data) {
+  const root = $("#data-root");
+  if (!root || !data) return;
+  const DATA = "/assets/data/";
+
+  const pipeline = (data.pipeline || [])
+    .map((step, i) => `<li data-step="${i + 1}">${esc(step)}</li>`)
+    .join("");
+
+  const splitRows = (data.split_table || []).map((r) => [
+    r.split,
+    { text: String(r.rows), className: "num" },
+    r.role,
+  ]);
+
+  const nv = (data.numeric_vs_pgf || []).map((r) => [
+    r.target,
+    { text: String(r.rows), className: "num" },
+    { text: r.irregular_pct != null ? `${r.irregular_pct}%` : "—", className: "num" },
+    {
+      text: r.chain_4_5_pct != null ? `${r.chain_4_5_pct}%` : "—",
+      className: "num",
+    },
+  ]);
+
+  const tagBlock = (title, key) => {
+    const rows = ((data.tag_tables || {})[key] || []).map((r) => [
+      r.op,
+      { text: String(r.count), className: "num" },
+    ]);
+    if (!rows.length) return "";
+    return `
+      <section class="report-section">
+        <h3>${esc(title)}</h3>
+        ${reportTable(["Op / family", "Count"], rows)}
+      </section>`;
+  };
+
+  root.innerHTML = `
+    <div class="report-hero">
+      <h2>${esc(data.title)}</h2>
+      <p>${esc(data.subtitle)}</p>
+    </div>
+    <section class="report-section">
+      <h3>How data was formed</h3>
+      <ol class="report-pipeline">${pipeline}</ol>
+    </section>
+    <section class="report-section">
+      <h3>Split sizes</h3>
+      <p class="caption">Exact line counts from committed <code>data/*.jsonl</code> files.</p>
+      ${reportTable(["Split", "Rows", "Role"], splitRows)}
+    </section>
+    <section class="report-section">
+      <h3>Numeric vs PGF difficulty mix</h3>
+      <p class="caption">Irregular-number share and chain 4–5 concentration where applicable.</p>
+      ${reportTable(["Target", "Rows", "Irregular %", "Chain 4–5 %"], nv)}
+    </section>
+    ${reportFigures(DATA, data.images)}
+    ${tagBlock("v1 numeric train — tag occurrences", "train_numeric")}
+    ${tagBlock("v2 PGF train — tag occurrences", "train_pgf")}
+    ${tagBlock("Olympiad eval — named constructions", "olympiad")}
+    ${tagBlock("Illustrator syn eval v2 — families", "illustrator_syn_v2")}
+  `;
+  root.removeAttribute("aria-busy");
+}
+
+async function loadReportTabs() {
+  try {
+    const [evals, data] = await Promise.all([
+      fetch("/assets/evals/data.json", { credentials: "same-origin" }).then((r) => {
+        if (!r.ok) throw new Error(`evals data ${r.status}`);
+        return r.json();
+      }),
+      fetch("/assets/data/data.json", { credentials: "same-origin" }).then((r) => {
+        if (!r.ok) throw new Error(`dataset data ${r.status}`);
+        return r.json();
+      }),
+    ]);
+    renderEvals(evals);
+    renderData(data);
+  } catch (err) {
+    const msg = `Could not load report tabs: ${err.message || err}`;
+    const er = $("#evals-root");
+    const dr = $("#data-root");
+    if (er) {
+      er.innerHTML = `<p class="empty-hint">${esc(msg)}</p>`;
+      er.removeAttribute("aria-busy");
+    }
+    if (dr) {
+      dr.innerHTML = `<p class="empty-hint">${esc(msg)}</p>`;
+      dr.removeAttribute("aria-busy");
+    }
+  }
+}
+
 async function init() {
   showEmptyChat();
   setupTabs();
   setBoard(null);
+  loadReportTabs();
 
   try {
     const cfg = await api("/api/config");
