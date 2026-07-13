@@ -1000,7 +1000,8 @@ AIME_2001_II_7 = (
     "of triangle RST and C3 the inscribed circle of triangle QUV. Draw triangle PQR, "
     "incircle C1, segments ST and UV, and incircles C2 and C3."
 )
-AIME_DEMO_IMAGE = "/assets/demo/aime_2001_II_7.png"
+# Query param busts the 24h Cache-Control on /assets/ so demos pick up crop updates.
+AIME_DEMO_IMAGE = "/assets/demo/aime_2001_II_7.png?v=20260713b"
 AIME_DEMO_EXAMPLE = {
     "label": "AIME screenshot (2001-II-7)",
     "prompt": AIME_2001_II_7,

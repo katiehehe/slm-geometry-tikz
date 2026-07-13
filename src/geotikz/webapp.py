@@ -242,7 +242,10 @@ def create_app(
     async def _cache_static_assets(request, call_next):
         response = await call_next(request)
         path = request.url.path or ""
-        if path.startswith("/assets/"):
+        if path.startswith("/assets/demo/"):
+            # Demo screenshots change during polish; don't pin them for a day.
+            response.headers["Cache-Control"] = "public, max-age=300"
+        elif path.startswith("/assets/"):
             response.headers.setdefault("Cache-Control", "public, max-age=86400")
         return response
 
