@@ -1,6 +1,6 @@
 # Spec-First Geometry → TikZ
 
-A small open model (Qwen3-0.6B / 1.7B) fine-tuned to do **one** narrow thing reliably:
+A small open model (Qwen3-0.6B / 1.7B / 4B) fine-tuned to do **one** narrow thing reliably:
 turn a **coordinate-free** geometry scene description (relationships only, *no explicit
 coordinates*) into a **single compiling TikZ/PGF figure whose every named point is
 numerically correct**: recovering the hidden numbers from the geometry, not transcribing
@@ -10,9 +10,18 @@ them.
 > training data, and *how you frame the target* (compute the answer vs. emit the
 > construction) matters more than model size or dataset size.
 
+## Reviewer quickstart (5 minutes)
+
+1. **Live app:** [Geometry Figure Copilot](https://katie-he--geotikz-copilot-web.modal.run) — auth `demo` / `geotikz-gpu-8t3n`
+2. **Examples →** `AIME screenshot (2001-II-7)` (instant curated specialist figure), then a construction example (e.g. circumcenter) for a live GPU draw
+3. **Info → Evals** for the specialist arc, frontier heatmap, and AIME honesty
+4. **Narrative:** [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) · **gate:** [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md) · **cards:** [`cards/`](cards/)
+
+**Headline:** Qwen3-0.6B + PGF target goes **0% → 98.9%** on the construction gate; foot-of-altitude **2% → 98%**. Live specialist is `qwen3-illustrator-4b-v2`.
+
 **Start here:**
 
-- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md): canonical demo write-up (pitch, eval, results, product, terms, Q&A).
+- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md): canonical demo write-up (pitch, eval, results, product).
 - [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md): the one-sentence falsifiable gate.
 - [`cards/`](cards/): Hugging Face model + dataset cards.
 
@@ -22,13 +31,13 @@ Pass = **figure-only AND compiles (`tectonic`) AND every named coordinate within
 
 | Milestone | Pass rate | Evidence |
 | :-- | --: | :-- |
-| Base Qwen3-0.6B (prompted) | 0.003 | `outputs/eval_base_new.json` |
-| Tuned 0.6B, v1 numeric target | 0.464 | `outputs/eval_tuned.json` |
-| Tuned 1.7B, v1 numeric target | 0.598 | `outputs/eval_tuned_1p7b.json` |
-| Tuned 0.6B, **v2 construction target** | **0.989** | `outputs/eval_pgf_tuned.json` |
+| Base Qwen3-0.6B (prompted) | 0.003 | local `outputs/eval_base_new.json` |
+| Tuned 0.6B, v1 numeric target | 0.464 | local `outputs/eval_tuned.json` |
+| Tuned 1.7B, v1 numeric target | 0.598 | local `outputs/eval_tuned_1p7b.json` |
+| Tuned 0.6B, **v2 construction target** | **0.989** | local `outputs/eval_pgf_tuned.json` |
 
 Same base model + recipe for v1 vs v2 (**only the target representation changed**) took
-the hardest construction (foot-of-altitude) from **0.02 → 0.98**.
+the hardest construction (foot-of-altitude) from **0.02 → 0.98**. Visual summary also lives in the live app (**Info → Evals**) and under [`web/assets/evals/`](web/assets/evals/).
 
 ---
 
@@ -103,10 +112,10 @@ The shipped product UI is a **custom chat SPA** under [`web/`](web/) (Figure | I
 
 ```bash
 uv run python scripts/copilot.py             # custom SPA: text / screenshot in -> figure + TikZ, then edit
+# hosted: modal deploy scripts/copilot_modal.py
 ```
 
-See [`EXAMPLES.md`](EXAMPLES.md) for copy‑pasteable prompts the local `qwen3-illustrator-4b`
-specialist handles itself (also wired as clickable examples in the app).
+In-app **Examples** menu ships ready prompts (circumcenter, orthocenter, tangents, AIME screenshot, …).
 
 ---
 
@@ -129,7 +138,8 @@ optional render-diff (SSIM/MSE) · optional LLM-judge rubric (`src/geotikz/judge
 
 Model inference of base+LoRA thrashes on an 8 GB Mac, so predictions are generated on a GPU
 (Modal) and **scored locally** (compile + coordinate check is lightweight). The committed
-`outputs/eval_preds_*.jsonl` let you re-score everything **locally with just tectonic**.
+visual evidence is under [`web/assets/evals/`](web/assets/evals/); full `outputs/` JSON
+artifacts are generated locally (gitignored) via the commands below.
 
 | Result | Command | Artifact |
 | :-- | :-- | :-- |
@@ -146,7 +156,7 @@ Model inference of base+LoRA thrashes on an 8 GB Mac, so predictions are generat
 Full-model re-run from scratch (needs a GPU): generate preds with
 `modal run scripts/train_modal.py::eval_infer`, download with `modal volume get`, then
 `score_preds.py`. The per-claim → artifact map is also in
-[`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) and [`README.md`](README.md#reproduce-every-result).
+[`DEMO_WRITEUP.md`](DEMO_WRITEUP.md).
 
 ---
 
@@ -168,7 +178,8 @@ modal run --detach scripts/train_illustrator_modal.py --epochs 2   # 1.7B illust
 | `qwen3-1.7b-geotikz` | Qwen3-1.7B | v1 numeric | r=16, α=32 | 5,340 |
 | `qwen3-pgf-geotikz` | Qwen3-0.6B | v2 construction | r=16, α=32 | 2,050 |
 | `qwen3-illustrator` | Qwen3-1.7B | illustrator | r=32, α=64 | 3,996 |
-| `qwen3-illustrator-4b` *(in progress)* | Qwen3-4B | illustrator | r=32, α=64 | 3,996 |
+| `qwen3-illustrator-4b` | Qwen3-4B | illustrator | r=32, α=64 | 3,996 |
+| `qwen3-illustrator-4b-v2` *(live)* | Qwen3-4B | illustrator + paraphrases / harder families | r=32, α=64 | 8,852 |
 
 Data is **self-verifying synthetic**: scenes are built *forward from exact coordinates*
 (`src/geotikz/{scene,generator,olympiad_ext}.py`), then coordinates are stripped for the
@@ -186,14 +197,14 @@ Cards are ready (`cards/model_card.md`, `cards/dataset_card.md`). Publishing nee
 **write token**. The script is dry-run by default:
 
 ```bash
-uv run python scripts/publish_hf.py --user katiehehe              # preview the plan
+uv run python scripts/publish_hf.py --user kyhe              # preview the plan
 export HF_TOKEN=hf_...                                           # WRITE token
-uv run python scripts/publish_hf.py --user katiehehe --push       # create repos + upload
+uv run python scripts/publish_hf.py --user kyhe --push       # create repos + upload
 ```
 
 That publishes:
-- dataset: `katiehehe/spec-first-geometry-tikz`
-- model: `katiehehe/qwen3-geotikz` (LoRA adapters as subfolders, including `qwen3-illustrator-4b-v2`)
+- dataset: `kyhe/spec-first-geometry-tikz`
+- model: `kyhe/qwen3-geotikz` (LoRA adapters as subfolders, including `qwen3-illustrator-4b-v2`)
 
 ## Layout
 
@@ -211,6 +222,6 @@ scripts/
   evaluate.py, score_preds.py                  # scoring
   difficulty_sweep.py, sweep_report.py, olympiad_sweep.py   # frontier litmus
   utility_eval.py, eval_syn_illustrator.py     # utility + illustrator evals
-  demo.py, demo_web.py, copilot.py, make_worksheet.py, illustrate_aime.py   # product surfaces (copilot = chat + edit)
+  demo.py, demo_web.py, copilot.py, make_worksheet.py, illustrate_aime.py   # product surfaces
   publish_hf.py                                # Hub publishing (dry-run by default)
 ```

@@ -34,7 +34,7 @@ The **synthetic gate** requires figure-only TikZ that compiles under tectonic, w
 
 The twelve-model pass heatmap below shows how hard the numeric grid still is even for frontier models.
 
-12-model pass heatmap
+![Twelve-model pass-rate heatmap on the numeric 800-grid](web/assets/evals/pass_heatmap.png)
 
 ## The results of your training
 
@@ -75,23 +75,24 @@ Synthetic in-domain was essentially solved. On held-out AIME the narrow PGF spec
 | -------------------------- | ------- | -------- |
 | Narrow PGF specialist      | ~14%    | 0.7%     |
 | Illustrator 1.7B           | ~69%    | 11.3%    |
-| Illustrator 4B             | n/a     | 24%      |
+| Illustrator 4B (v1)        | ~70%    | 24%      |
+| Illustrator 4B v2 (n=100)  | 76%     | 21%      |
 | Judge-gated frontier union | n/a     | ~64-68%  |
 
 
-Illustrator 4B v2, with more paraphrases and harder families, hits 98.1 percent on an expanded synthetic gate and 99.1 percent on paraphrase. That adapter is promoted in the live app as `qwen3-illustrator-4b-v2`.
+Illustrator 4B v2, with more paraphrases and harder families, hits 98.1 percent on an expanded synthetic gate and 99.1 percent on paraphrase. That adapter is promoted in the live app as `qwen3-illustrator-4b-v2`. On held-out AIME it raises compile coverage; faithfulness stays honest (21% on a 100-problem slice) — compile is not the same as correct.
 
 The line to remember: on in-domain constructions, target framing unlocked reliability more than model size; on open AIME, I am honest about the faithfulness gap.
 
 The before-and-after render below is the same style of scene failing on base and passing after the tune.
 
-Base fails, tuned passes
+![Base model fails, tuned specialist passes on the same scene](web/assets/evals/before_after.png)
 
 ## Product
 
 The specialist became a custom chat SPA on Modal in [`web/`](web/) and [`src/geotikz/webapp.py`](src/geotikz/webapp.py). Text, screenshot, or PDF goes in; a figure and TikZ come out; then conversational edits. Routing prefers the specialist for in-vocab constructions and falls back to frontier for out-of-domain scenes, with vision for uploads and one automatic repair pass on non-compiling figures. Every reply attributes which model produced it. I am not pretending every figure came from the small model. I also shipped a CLI, Gradio demo, and worksheet generator for in-vocabulary problems.
 
-Custom copilot SPA
+**Live demo:** [Geometry Figure Copilot](https://katie-he--geotikz-copilot-web.modal.run) (auth `demo` / `geotikz-gpu-8t3n`).
 
 ## What I’d do better
 

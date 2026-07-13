@@ -93,9 +93,15 @@ def placeholder(body: str) -> Image.Image:
     return canvas
 
 
-def title_strip(text: str, color: str) -> Image.Image:
-    strip = Image.new("RGB", (PANEL, 34), color)
-    ImageDraw.Draw(strip).text((12, 8), text, fill="white", font=F_TITLE)
+def title_strip(text: str, color: str, height: int = 52) -> Image.Image:
+    """Multi-line title bar so long FAIL notes are not clipped."""
+    strip = Image.new("RGB", (PANEL, height), color)
+    draw = ImageDraw.Draw(strip)
+    lines = textwrap.wrap(text, width=34)[:3] or [text]
+    y = 8 if len(lines) == 1 else 6
+    for ln in lines:
+        draw.text((12, y), ln, fill="white", font=F_BODY)
+        y += 16
     return strip
 
 
@@ -188,25 +194,37 @@ def main() -> None:
     for i, ln in enumerate(lines):
         hd.text((12, 40 + 24 * i), ln, fill="#333333", font=F_BODY)
 
-    strips = Image.new("RGB", (W, 34), "white")
-    strips.paste(title_strip("GROUND TRUTH", "#3b5bdb"), (0, 0))
-    strips.paste(title_strip(f"BASE Qwen3-0.6B — FAIL ({b_note})", "#c92a2a"), (PANEL + 8, 0))
-    strips.paste(title_strip("TUNED 0.6B + LoRA — PASS", "#2b8a3e"), (2 * PANEL + 16, 0))
+    strip_h = 52
+    strips = Image.new("RGB", (W, strip_h), "white")
+    strips.paste(title_strip("GROUND TRUTH", "#3b5bdb", strip_h), (0, 0))
+    strips.paste(
+        title_strip(f"BASE Qwen3-0.6B: FAIL ({b_note})", "#c92a2a", strip_h),
+        (PANEL + 8, 0),
+    )
+    strips.paste(title_strip("TUNED 0.6B + LoRA: PASS", "#2b8a3e", strip_h), (2 * PANEL + 16, 0))
 
     body = Image.new("RGB", (W, PANEL), "white")
     body.paste(gt_panel, (0, 0))
     body.paste(b_panel, (PANEL + 8, 0))
     body.paste(tuned_panel, (2 * PANEL + 16, 0))
 
-    total = Image.new("RGB", (W, head_h + 34 + PANEL), "white")
+    total = Image.new("RGB", (W, head_h + strip_h + PANEL), "white")
     total.paste(header, (0, 0))
     total.paste(strips, (0, head_h))
-    total.paste(body, (0, head_h + 34))
+    total.paste(body, (0, head_h + strip_h))
 
     out = ROOT / "outputs/renders/before_after.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     total.save(out)
     print(f"saved -> {out}")
+
+    # Panel crops for the Info page HTML compare grid (no baked labels).
+    web_dir = ROOT / "web/assets/evals/before_after"
+    web_dir.mkdir(parents=True, exist_ok=True)
+    gt_panel.save(web_dir / "gt.png")
+    b_panel.save(web_dir / "base.png")
+    tuned_panel.save(web_dir / "tuned.png")
+    print(f"saved panels -> {web_dir}")
 
 
 if __name__ == "__main__":

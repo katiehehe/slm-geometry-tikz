@@ -191,7 +191,7 @@ class Specialist:
         return {"adapter": self.adapter, "base": self.base, "mode": self.mode}
 
     @modal.method()
-    def generate(self, description: str, max_new_tokens: int = 640) -> dict:
+    def generate(self, description: str, max_new_tokens: int = 1536) -> dict:
         import time
 
         import torch
@@ -213,6 +213,15 @@ class Specialist:
             )
         gen = g[0][inputs["input_ids"].shape[1]:]
         text = self.tok.decode(gen, skip_special_tokens=True)
+        # One retry with a longer budget if the figure was cut off mid-tikzpicture.
+        if "\\begin{tikzpicture}" in text and "\\end{tikzpicture}" not in text and max_new_tokens < 2560:
+            with torch.no_grad():
+                g = self.model.generate(
+                    **inputs, max_new_tokens=2560, do_sample=False,
+                    pad_token_id=self.tok.pad_token_id,
+                )
+            gen = g[0][inputs["input_ids"].shape[1]:]
+            text = self.tok.decode(gen, skip_special_tokens=True)
         return {"tikz": text, "adapter": self.adapter, "base": self.base,
                 "latency_s": round(time.time() - t0, 3)}
 

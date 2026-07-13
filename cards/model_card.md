@@ -44,7 +44,7 @@ The behavior is graded by one falsifiable gate: **figure-only AND compiles under
 | `qwen3-geotikz` | `Qwen/Qwen3-0.6B` | v1 numeric | 5,340 | **0.464** pass on 800-item grid (base 0.003) |
 | `qwen3-illustrator` | `Qwen/Qwen3-1.7B` | construction (distilled + generator breadth) | 3,996 | **93.8%** coordinate-verified on 240 synthetic (base 7.9%); AIME **69.3%** compile / **11.3%** judge-faithful |
 | `qwen3-illustrator-4b` | `Qwen/Qwen3-4B` | construction (distilled + generator breadth) | 3,996 | **97.1%** coordinate-verified on 240 synthetic (base 9.2%); AIME **70.0%** compile / **24.0%** judge-faithful (2.1× the 1.7B) |
-| `qwen3-illustrator-4b-v2` | `Qwen/Qwen3-4B` | construction (more paraphrases + harder families) | 8,852 | **98.1%** on expanded synthetic gate; **99.1%** paraphrase; promoted in the live app |
+| `qwen3-illustrator-4b-v2` | `Qwen/Qwen3-4B` | construction (more paraphrases + harder families) | 8,852 | **98.1%** expanded synthetic; **99.1%** paraphrase; AIME (n=100) **76%** compile / **21%** faithful; promoted in the live app |
 
 All adapters are LoRA (`all-linear`), bf16, trained with TRL + PEFT on a Modal GPU.
 `qwen3-*-geotikz`: r=16, α=32, 2 epochs. `qwen3-illustrator*`: r=32, α=64, 2 epochs.
@@ -60,7 +60,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 BASE = "Qwen/Qwen3-0.6B"                 # match the adapter's base model
-REPO = "katiehehe/qwen3-geotikz"         # this Hub repo
+REPO = "kyhe/qwen3-geotikz"              # this Hub repo
 ADAPTER = "qwen3-pgf-geotikz"            # subfolder for the v2 specialist
 
 tok = AutoTokenizer.from_pretrained(BASE)

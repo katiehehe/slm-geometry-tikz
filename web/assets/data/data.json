@@ -1,358 +1,314 @@
 {
-  "title": "Dataset",
-  "subtitle": "How the training data was formed, and exact split / family distributions from the committed JSONL files.",
-  "pipeline": [
-    "Synthetic scene generator (`scene.py` / `generator.py` / `olympiad_ext.py`) builds each example forward from exact coordinates, then strips those coordinates so the model input is relationships only.",
-    "Labels are TikZ emission in one of two targets: v1 numeric (literal coordinates) or v2 PGF constructions (`calc` / polar / tkz-euclide) so LaTeX does the arithmetic.",
-    "Every label is validated by the compile + coordinate gate (figure-only TikZ, tectonic compile, named points within \u22480.05 of ground truth). Splits are disjoint at build time.",
-    "Illustrator data adds frontier distillation (`distill.py`) hard-filtered by compile + vision judge, plus broader synthetic families and paraphrases (v2 expands harder constructions)."
-  ],
-  "split_table": [
-    {
-      "split": "train.jsonl (v1 numeric)",
-      "rows": 5340,
-      "role": "SFT \u2014 numeric target"
+  "title": "Evaluation results",
+  "subtitle": "Synthetic gate, frontier sweep, PGF constructions, and AIME: numbers from DEMO_WRITEUP and committed eval reports.",
+  "sections": {
+    "specialist_arc": {
+      "heading": "Coordinate / numeric gate story",
+      "caption": "Same synthetic gate style: near-zero on base, mid-pack after numeric fine-tunes, near-perfect once the target becomes PGF constructions. Foot-of-altitude went from ~2% to ~98% under that pivot.",
+      "rows": [
+        {
+          "model": "Base Qwen3-0.6B (numeric)",
+          "pass_rate": "0.25%",
+          "counts": "2 / 800",
+          "source": "eval_base_new.json"
+        },
+        {
+          "model": "Tuned 0.6B (v1 numeric)",
+          "pass_rate": "46.4%",
+          "counts": "371 / 800",
+          "source": "eval_tuned.json"
+        },
+        {
+          "model": "Tuned 1.7B (v1 numeric)",
+          "pass_rate": "59.8%",
+          "counts": "478 / 800",
+          "source": "eval_tuned_1p7b.json"
+        },
+        {
+          "model": "Tuned 0.6B (v2 PGF)",
+          "pass_rate": "98.9%",
+          "counts": "277 / 280",
+          "source": "eval_pgf_tuned.json"
+        }
+      ]
     },
-    {
-      "split": "eval.jsonl (v1 numeric)",
-      "rows": 800,
-      "role": "Held-out numeric gate / frontier sweep grid"
+    "frontier_sweep": {
+      "heading": "Frontier difficulty sweep",
+      "caption": "Twelve-model pass heatmap on the numeric 800-grid. Hard cells are specific constructions plus ugly numbers; no model is reliable across the whole landscape.",
+      "images": [
+        {
+          "src": "pass_heatmap.png",
+          "alt": "Twelve-model pass-rate heatmap on the numeric 800-grid",
+          "caption": "Pass heatmap: models \u00d7 construction difficulty cells"
+        },
+        {
+          "src": "op_effect.png",
+          "alt": "Operation effect chart across models",
+          "caption": "Op effect: which constructions drive failures"
+        }
+      ]
     },
-    {
-      "split": "train_pgf.jsonl (v2 PGF)",
-      "rows": 2050,
-      "role": "SFT \u2014 construction target"
+    "pgf": {
+      "heading": "PGF / construction results",
+      "caption": "No dedicated \u201cPGF heatmap\u201d artifact. Best available visuals plus utility-check pass rates. Base still scores 0% on the PGF eval, so the jump is a trained behavior.",
+      "images": [
+        {
+          "layout": "compare",
+          "alt": "Base model fails, tuned specialist passes on the same scene",
+          "caption": "Before / after: base fails, tuned passes",
+          "panels": [
+            {
+              "src": "before_after/gt.png",
+              "title": "Ground truth",
+              "tone": "gt",
+              "alt": "Ground-truth geometry figure"
+            },
+            {
+              "src": "before_after/base.png",
+              "title": "Base Qwen3-0.6B: Fail",
+              "note": "point B off by 10.24",
+              "tone": "fail",
+              "alt": "Base model incorrect figure"
+            },
+            {
+              "src": "before_after/tuned.png",
+              "title": "Tuned 0.6B + LoRA: Pass",
+              "tone": "pass",
+              "alt": "Tuned model correct figure"
+            }
+          ]
+        },
+        {
+          "layout": "compare",
+          "alt": "Frontier LLM versus specialist SLM figure comparison",
+          "caption": "LLM vs SLM comparison",
+          "panels": [
+            {
+              "src": "llm_vs_slm/gt.png",
+              "title": "Ground truth",
+              "tone": "gt",
+              "alt": "Ground-truth geometry figure"
+            },
+            {
+              "src": "llm_vs_slm/frontier.png",
+              "title": "Frontier LLM: Fail",
+              "tone": "fail",
+              "alt": "Frontier model incorrect figure"
+            },
+            {
+              "src": "llm_vs_slm/slm.png",
+              "title": "Tuned SLM 0.6B: Pass",
+              "tone": "pass",
+              "alt": "Specialist SLM correct figure"
+            }
+          ]
+        },
+        {
+          "src": "chain_heatmap.png",
+          "alt": "Specialist chain-length ceiling heatmap",
+          "caption": "Specialist ceiling: chain \u00d7 regime heatmap"
+        },
+        {
+          "src": "family_passrate.png",
+          "alt": "Pass rate by construction family",
+          "caption": "Family pass rates (illustrator ceiling)"
+        }
+      ],
+      "utility_rows": [
+        {
+          "config": "Specialist (0.6B PGF, local)",
+          "pass": "100%",
+          "compile": "100%",
+          "note": "In-domain n=30"
+        },
+        {
+          "config": "gpt-5.5 [plain]",
+          "pass": "96.7%",
+          "compile": "100%",
+          "note": "Utility report"
+        },
+        {
+          "config": "gpt-5.5 [construction]",
+          "pass": "100%",
+          "compile": "100%",
+          "note": "Utility report"
+        },
+        {
+          "config": "Opus 4.8 [plain]",
+          "pass": "90.0%",
+          "compile": "96.7%",
+          "note": "Utility report"
+        },
+        {
+          "config": "Opus 4.8 [construction]",
+          "pass": "63.3%",
+          "compile": "66.7%",
+          "note": "Macro hallucinations"
+        }
+      ]
     },
-    {
-      "split": "eval_pgf.jsonl (v2 PGF)",
-      "rows": 280,
-      "role": "Held-out PGF gate"
+    "frontier_table": {
+      "heading": "Frontier vs specialist (numeric 800-grid)",
+      "caption": "Tuned specialists beat some frontier models and do not beat others. Full CSV: outputs/sweep/pass_rates.csv.",
+      "rows": [
+        {
+          "model": "claude-sonnet-5",
+          "pass_rate": "97.7%",
+          "versus": "Specialist does not beat"
+        },
+        {
+          "model": "gpt-5.5",
+          "pass_rate": "87.0%",
+          "versus": "Specialist does not beat"
+        },
+        {
+          "model": "Claude Opus 4.8",
+          "pass_rate": "67.4%",
+          "versus": "Specialist does not beat"
+        },
+        {
+          "model": "Tuned 1.7B (ours)",
+          "pass_rate": "59.8%",
+          "versus": "Beats gpt-4.1 and gpt-4o"
+        },
+        {
+          "model": "gpt-4.1",
+          "pass_rate": "55.5%",
+          "versus": "Beaten by tuned 1.7B"
+        },
+        {
+          "model": "Tuned 0.6B (ours)",
+          "pass_rate": "46.4%",
+          "versus": "Beats gpt-4o only"
+        },
+        {
+          "model": "gpt-4o",
+          "pass_rate": "43.9%",
+          "versus": "Beaten by both tuned specialists"
+        },
+        {
+          "model": "Base 0.6B",
+          "pass_rate": "0.25%",
+          "versus": "-"
+        }
+      ]
     },
-    {
-      "split": "golden_set.jsonl",
-      "rows": 150,
-      "role": "Curated showcase (construction)"
-    },
-    {
-      "split": "olympiad_eval.jsonl",
-      "rows": 120,
-      "role": "Named-center litmus"
-    },
-    {
-      "split": "illustrator_train_chat.jsonl",
-      "rows": 3996,
-      "role": "Illustrator SFT v1"
-    },
-    {
-      "split": "illustrator_train_chat_v2.jsonl",
-      "rows": 8852,
-      "role": "Illustrator SFT v2 (more paraphrases / harder families)"
-    },
-    {
-      "split": "illustrator_syn_eval.jsonl",
-      "rows": 240,
-      "role": "Coord-verified synthetic eval"
-    },
-    {
-      "split": "illustrator_syn_eval_v2.jsonl",
-      "rows": 360,
-      "role": "Expanded synthetic eval v2"
-    },
-    {
-      "split": "illustrator_paraphrase_eval.jsonl",
-      "rows": 228,
-      "role": "Paraphrase robustness"
-    },
-    {
-      "split": "distill_illustrator.jsonl",
-      "rows": 1099,
-      "role": "Teacher-distilled competition pairs"
+    "aime": {
+      "heading": "AIME performance",
+      "caption": "Compile is not the same as faithful. Distilling a frontier teacher raises compile coverage a lot while faithfulness stays much lower.",
+      "gallery_heading": "Gallery",
+      "gallery_caption": "Illustrator 4B v2 specialist renders.",
+      "rows": [
+        {
+          "system": "Narrow PGF specialist",
+          "compile": "~14%",
+          "faithful": "0.7%"
+        },
+        {
+          "system": "Illustrator 1.7B",
+          "compile": "~69%",
+          "faithful": "11.3%"
+        },
+        {
+          "system": "Illustrator 4B v2 (n=100)",
+          "compile": "76%",
+          "faithful": "21%"
+        },
+        {
+          "system": "Judge-gated frontier union",
+          "compile": "-",
+          "faithful": "~64-68%"
+        }
+      ],
+      "gallery": [
+        {
+          "src": "aime/1983-15.png",
+          "label": "1983-15"
+        },
+        {
+          "src": "aime/1995-3.png",
+          "label": "1995-3"
+        },
+        {
+          "src": "aime/2001-II-12.png",
+          "label": "2001-II-12"
+        },
+        {
+          "src": "aime/2006-I-8.png",
+          "label": "2006-I-8"
+        },
+        {
+          "src": "aime/2011-I-10.png",
+          "label": "2011-I-10"
+        },
+        {
+          "src": "aime/2016-I-9.png",
+          "label": "2016-I-9"
+        },
+        {
+          "src": "aime/2018-I-4.png",
+          "label": "2018-I-4"
+        }
+      ]
     }
-  ],
-  "numeric_vs_pgf": [
-    {
-      "target": "v1 numeric train",
-      "rows": 5340,
-      "irregular_pct": 83.1,
-      "chain_4_5_pct": 78.1
-    },
-    {
-      "target": "v2 PGF train",
-      "rows": 2050,
-      "irregular_pct": 92.7,
-      "chain_4_5_pct": 75.6
-    },
-    {
-      "target": "v1 numeric eval",
-      "rows": 800,
-      "irregular_pct": 65.0,
-      "chain_4_5_pct": null
-    },
-    {
-      "target": "v2 PGF eval",
-      "rows": 280,
-      "irregular_pct": 100.0,
-      "chain_4_5_pct": 75.0
-    }
-  ],
-  "tag_tables": {
-    "train_numeric": [
+  },
+  "models": {
+    "heading": "Trained specialists",
+    "caption": "LoRA adapters actually trained in this project (Modal volume geotikz-outputs). Frontier API models used as judges/fallbacks are not listed here.",
+    "rows": [
       {
-        "op": "point_on_circle",
-        "count": 9582
+        "name": "qwen3-geotikz",
+        "size": "Qwen3-0.6B + LoRA",
+        "purpose": "v1 numeric specialist: model invents coordinates",
+        "notes": "Train: train.jsonl (5,340). Gate: 46.4% on 800-grid. Early arc, not used in live copilot."
       },
       {
-        "op": "midpoint",
-        "count": 3157
+        "name": "qwen3-1.7b-geotikz",
+        "size": "Qwen3-1.7B + LoRA",
+        "purpose": "v1 numeric specialist at larger base",
+        "notes": "Train: train.jsonl (5,340). Gate: 59.8% on 800-grid; beats gpt-4.1/gpt-4o on that grid. Eval-only; not in copilot."
       },
       {
-        "op": "reflect_y",
-        "count": 2590
+        "name": "qwen3-pgf-geotikz",
+        "size": "Qwen3-0.6B + LoRA",
+        "purpose": "v2 PGF construction specialist: emit calc/tkz, LaTeX does arithmetic",
+        "notes": "Train: train_pgf.jsonl (2,050). Gate: 98.9% on 280 PGF eval. Local CLI default; Modal copilot fallback if illustrators missing."
       },
       {
-        "op": "foot_altitude",
-        "count": 2505
+        "name": "qwen3-illustrator",
+        "size": "Qwen3-1.7B + LoRA",
+        "purpose": "AIME/olympiad illustrator: broader constructions + distilled teacher",
+        "notes": "Train: illustrator_train_chat.jsonl (3,996). AIME ~69% compile / 11.3% faithful. Modal fallback after 4B.",
+        "anchor": "illustrator-training"
       },
       {
-        "op": "reflect_x",
-        "count": 2351
+        "name": "qwen3-illustrator-4b",
+        "size": "Qwen3-4B + LoRA",
+        "purpose": "Larger illustrator on same v1 illustrator mix",
+        "notes": "Train: illustrator_train_chat.jsonl (3,996). AIME ~70% compile / ~24% faithful. Modal fallback before 1.7B.",
+        "anchor": "illustrator-training"
       },
       {
-        "op": "intersection",
-        "count": 1325
-      }
-    ],
-    "train_pgf": [
-      {
-        "op": "point_on_circle",
-        "count": 3548
-      },
-      {
-        "op": "foot_altitude",
-        "count": 1087
-      },
-      {
-        "op": "midpoint",
-        "count": 1022
-      },
-      {
-        "op": "reflect_y",
-        "count": 983
-      },
-      {
-        "op": "reflect_x",
-        "count": 802
-      },
-      {
-        "op": "intersection",
-        "count": 558
-      }
-    ],
-    "olympiad": [
-      {
-        "op": "circumcenter",
-        "count": 15
-      },
-      {
-        "op": "incenter",
-        "count": 15
-      },
-      {
-        "op": "orthocenter",
-        "count": 15
-      },
-      {
-        "op": "centroid",
-        "count": 15
-      },
-      {
-        "op": "angle_bisector",
-        "count": 15
-      },
-      {
-        "op": "foot_altitude",
-        "count": 15
-      },
-      {
-        "op": "median",
-        "count": 15
-      },
-      {
-        "op": "tangent",
-        "count": 15
-      }
-    ],
-    "illustrator_syn_v2": [
-      {
-        "op": "circumcenter",
-        "count": 12
-      },
-      {
-        "op": "incenter",
-        "count": 12
-      },
-      {
-        "op": "orthocenter",
-        "count": 12
-      },
-      {
-        "op": "centroid",
-        "count": 12
-      },
-      {
-        "op": "angle_bisector",
-        "count": 12
-      },
-      {
-        "op": "foot_altitude",
-        "count": 12
-      },
-      {
-        "op": "median",
-        "count": 12
-      },
-      {
-        "op": "tangent",
-        "count": 12
-      },
-      {
-        "op": "line_intersection",
-        "count": 12
-      },
-      {
-        "op": "cevian_intersection",
-        "count": 12
-      },
-      {
-        "op": "midsegment",
-        "count": 12
-      },
-      {
-        "op": "midpoint_segment",
-        "count": 12
-      },
-      {
-        "op": "parallelogram",
-        "count": 12
-      },
-      {
-        "op": "foot_perp",
-        "count": 12
-      },
-      {
-        "op": "reflection_line",
-        "count": 12
-      },
-      {
-        "op": "rotation",
-        "count": 12
-      },
-      {
-        "op": "square",
-        "count": 12
-      },
-      {
-        "op": "regular_polygon",
-        "count": 12
-      },
-      {
-        "op": "two_circles",
-        "count": 12
-      },
-      {
-        "op": "antipode",
-        "count": 12
-      },
-      {
-        "op": "euler_line",
-        "count": 10
-      },
-      {
-        "op": "nine_point_center",
-        "count": 10
-      },
-      {
-        "op": "medial_triangle",
-        "count": 10
-      },
-      {
-        "op": "orthic_triangle",
-        "count": 10
-      },
-      {
-        "op": "incircle_contact",
-        "count": 10
-      },
-      {
-        "op": "bisector_incenter",
-        "count": 10
-      },
-      {
-        "op": "three_medians",
-        "count": 10
-      },
-      {
-        "op": "parallelogram_center",
-        "count": 10
-      },
-      {
-        "op": "midpoint_reflect_chain",
-        "count": 10
-      },
-      {
-        "op": "circumcircle_antipode",
-        "count": 10
-      },
-      {
-        "op": "square_center",
-        "count": 10
-      },
-      {
-        "op": "reflect_ortho_over_side",
-        "count": 10
+        "name": "qwen3-illustrator-4b-v2",
+        "size": "Qwen3-4B + LoRA",
+        "purpose": "Current live copilot specialist: more paraphrases + harder families",
+        "notes": "Train: illustrator_train_chat_v2.jsonl (8,852). Promoted in Modal ADAPTERS first; ~98% expanded synthetic / ~99% paraphrase.",
+        "anchor": "illustrator-training"
       }
     ]
   },
-  "images": [
-    {
-      "src": "data_composition.png",
-      "alt": "Dataset composition overview plot",
-      "caption": "Existing composition plot from analyze_dataset.py"
-    },
-    {
-      "src": "split_sizes.png",
-      "alt": "Bar chart of dataset split sizes",
-      "caption": "Exact split sizes across numeric, PGF, and illustrator datasets"
-    },
-    {
-      "src": "ops_train_numeric.png",
-      "alt": "Bar chart of construction tags in numeric train",
-      "caption": "v1 numeric train \u2014 tag occurrences (a row can have multiple tags)"
-    },
-    {
-      "src": "ops_train_pgf.png",
-      "alt": "Bar chart of construction tags in PGF train",
-      "caption": "v2 PGF train \u2014 tag occurrences"
-    },
-    {
-      "src": "chain_distribution.png",
-      "alt": "Chain length histograms for numeric and PGF train",
-      "caption": "Difficulty dial: chain length (derivation depth)"
-    },
-    {
-      "src": "irregular_split.png",
-      "alt": "Stacked bars of irregular vs round numbers",
-      "caption": "Difficulty dial: irregular vs round numbers"
-    },
-    {
-      "src": "ops_olympiad.png",
-      "alt": "Olympiad eval construction family counts",
-      "caption": "Olympiad eval \u2014 named constructions"
-    },
-    {
-      "src": "ops_illustrator_syn_v2.png",
-      "alt": "Illustrator synthetic eval v2 family counts",
-      "caption": "Illustrator syn eval v2 \u2014 construction families"
-    }
-  ]
+  "illustrator_training": {
+    "id": "illustrator-training",
+    "heading": "Illustrator special training",
+    "caption": "How the illustrator line differs from the numeric / PGF specialists: natural-language competition problems, chat-format SFT, distillation + vision filtering, then v2 paraphrase and harder-construction data.",
+    "bullets": [
+      "Why it exists: the narrow PGF specialist is format-locked on held-out AIME (~14% compile). Illustrators learn broader olympiad constructions and real problem wording so they can illustrate competition geometry.",
+      "Bases: qwen3-illustrator on Qwen3-1.7B; qwen3-illustrator-4b and qwen3-illustrator-4b-v2 on Qwen3-4B. All are LoRA (r=32, \u03b1=64, dropout 0.05, all-linear), bf16, 2 epochs, effective batch 16, max_len 2560, trained on Modal A100. Same recipe for 4B v1 and v2; only the data (and adapter name) change for v2.",
+      "v1 data (illustrator_train_chat.jsonl, 3,996 chat examples): distilled real AIME/MATH geometry pairs from distill.py (gpt-5.5 teacher \u2192 compile filter \u2192 vision-judge faithfulness; Asymptote blocks stripped; held-out AIME eval sample excluded) plus GT-verified synthetic constructions across ~20 families (build_illustrator_data.py).",
+      "Chat format: each row is messages (system / user / assistant) with the construction system prompt, not the narrow numeric TikZ-only target used by qwen3-geotikz / qwen3-pgf-geotikz.",
+      "v2 data (illustrator_train_chat_v2.jsonl, 8,852): keeps the full v1 set (3,996) and adds paraphrase augmentation (3,416 frontier rewrites of synthetic prompts with TikZ targets held byte-identical) plus harder/broader constructions (1,440 from olympiad_hard.py: 12 families with 2-4 derived points, 100% round-trip validated).",
+      "v2 vs v1 results (GT gate): expanded synthetic 84.7% \u2192 98.1%; paraphrase 98.7% \u2192 99.1%; harder families 60% \u2192 100% with no regression on the base 20 types. Held-out AIME (n=100): 76% compile / 21% faithful.",
+      "Product role: qwen3-illustrator-4b-v2 is first in Modal ADAPTERS and the live copilot specialist. Routing prefers it for in-vocabulary constructions; out-of-vocab / too many derived points / large polygons fall back to frontier. Older illustrators and qwen3-pgf-geotikz remain fallbacks if a preferred adapter is missing on the volume."
+    ]
+  }
 }

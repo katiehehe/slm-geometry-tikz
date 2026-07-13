@@ -166,9 +166,9 @@ def _aime_demo_result(
 ) -> copilot.RouteResult | None:
     """Instant specialist success for the filmed AIME Examples path.
 
-    Used only when the live specialist fails (truncate / compile). Avoids a ~60s
-    frontier redraw. Ship the curated specialist TikZ + PNG as-is (do NOT run
-    tidy_labels — it over-moves hand-placed demo labels).
+    Used for a reliable/fast demo (skip cold-start + truncate). Ship the curated
+    specialist TikZ + PNG as-is (do NOT run tidy_labels — it over-moves hand-placed
+    demo labels).
     """
     png_src = static_dir / "assets" / "demo" / "aime_2001_II_7_specialist_render.png"
     tikz_src = static_dir / "assets" / "demo" / "aime_2001_II_7.tikz"
@@ -327,32 +327,9 @@ def create_app(
         try:
             scene_hint = (message or "").strip() or None
 
-            # AIME Examples: try the LIVE specialist first. Only if it fails
-            # (truncate / compile) use the curated demo cache — never a 60s+
-            # frontier redraw on this filmed path.
+            # AIME Examples: ship the curated specialist figure immediately so the
+            # filmed/demo path stays fast and reliable (no cold-start / truncate).
             if _is_aime_demo_prompt(scene_hint):
-                live: copilot.RouteResult | None = None
-                if has_specialist:
-                    live = generate_text(
-                        scene_hint,
-                        True,
-                        model,
-                        specialist_fn=specialist_fn,
-                        specialist_label=specialist_label,
-                        out_dir=out_dir,
-                        allow_frontier=False,
-                    )
-                if live is not None and live.png:
-                    if attachment_path:
-                        live = copilot.RouteResult(
-                            live.png, live.tikz, live.badge,
-                            "Used the verified scene text with the screenshot, then "
-                            + (live.note[0].lower() + live.note[1:] if live.note else live.note),
-                        )
-                    payload = _route_payload(live, out_dir, keep_tikz=keep_tikz)
-                    payload["pending"] = None
-                    return payload
-
                 demo = _aime_demo_result(
                     static_dir=static_dir, out_dir=out_dir, specialist_label=specialist_label,
                 )

@@ -146,30 +146,43 @@ def main() -> None:
     for i, ln in enumerate(lines):
         hd.text((12, 40 + 24 * i), ln, fill="#333333", font=F_BODY)
 
-    def strip(text: str, color: str, x: int, dst: Image.Image) -> None:
-        s = Image.new("RGB", (PANEL, 34), color)
-        ImageDraw.Draw(s).text((10, 9), text, fill="white", font=F_BODY)
+    def strip(text: str, color: str, x: int, dst: Image.Image, height: int = 52) -> None:
+        s = Image.new("RGB", (PANEL, height), color)
+        draw = ImageDraw.Draw(s)
+        lines = textwrap.wrap(text, width=34)[:3] or [text]
+        y = 8 if len(lines) == 1 else 6
+        for ln in lines:
+            draw.text((10, y), ln, fill="white", font=F_BODY)
+            y += 16
         dst.paste(s, (x, 0))
 
     short = fr_note.replace("point ", "")  # e.g. "D off by 1.37"
-    strips = Image.new("RGB", (W, 34), "white")
-    strip("GROUND TRUTH (correct)", "#3b5bdb", 0, strips)
-    strip(f"{name} (frontier LLM) — FAIL: {short}", "#c92a2a", PANEL + 8, strips)
-    strip("TUNED SLM 0.6B (local) — PASS", "#2b8a3e", 2 * PANEL + 16, strips)
+    strip_h = 52
+    strips = Image.new("RGB", (W, strip_h), "white")
+    strip("GROUND TRUTH (correct)", "#3b5bdb", 0, strips, strip_h)
+    strip(f"{name} (frontier LLM): FAIL: {short}", "#c92a2a", PANEL + 8, strips, strip_h)
+    strip("TUNED SLM 0.6B (local): PASS", "#2b8a3e", 2 * PANEL + 16, strips, strip_h)
 
     body = Image.new("RGB", (W, PANEL), "white")
     body.paste(gt_panel, (0, 0))
     body.paste(fr_panel, (PANEL + 8, 0))
     body.paste(slm_panel, (2 * PANEL + 16, 0))
 
-    total = Image.new("RGB", (W, head_h + 34 + PANEL), "white")
+    total = Image.new("RGB", (W, head_h + strip_h + PANEL), "white")
     total.paste(header, (0, 0))
     total.paste(strips, (0, head_h))
-    total.paste(body, (0, head_h + 34))
+    total.paste(body, (0, head_h + strip_h))
 
     out = ROOT / "outputs/renders/llm_vs_slm.png"
     total.save(out)
     print(f"saved -> {out}")
+
+    web_dir = ROOT / "web/assets/evals/llm_vs_slm"
+    web_dir.mkdir(parents=True, exist_ok=True)
+    gt_panel.save(web_dir / "gt.png")
+    fr_panel.save(web_dir / "frontier.png")
+    slm_panel.save(web_dir / "slm.png")
+    print(f"saved panels -> {web_dir}")
 
 
 if __name__ == "__main__":

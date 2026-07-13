@@ -1,4 +1,4 @@
-# Behavior Spec — Spec-First Geometry → TikZ
+# Behavior Spec: Spec-First Geometry → TikZ
 
 ## The falsifiable gate (one sentence a stranger can grade)
 
@@ -10,7 +10,7 @@ This one sentence is simultaneously the **data-generation rubric**, the **eval c
 
 An output passes iff **all** of the following hold:
 
-1. **Figure only.** The output is exactly one TikZ figure — begins with `\begin{tikzpicture}` and ends with `\end{tikzpicture}` (optionally wrapped in a `document`), with **no prose** before or after.
+1. **Figure only.** The output is exactly one TikZ figure: it begins with `\begin{tikzpicture}` and ends with `\end{tikzpicture}` (optionally wrapped in a `document`), with **no prose** before or after.
 2. **Compiles.** The emitted TikZ compiles to a PDF with no errors.
 3. **Geometry correct.** Every named point's coordinates match the ground-truth construction within tolerance (default `atol = 0.05` in scene units). Incidences/relations (on-circle, reflection, midpoint, intersection, etc.) therefore hold.
 4. **Derived, not transcribed.** The input never stated the coordinates; the model recovered them from the relationships.
