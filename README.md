@@ -12,7 +12,8 @@ them.
 
 **Start here:**
 
-- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — short narrative demo (story arc + images).
+- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — canonical demo write-up (pitch, eval, results, product, terms, Q&A).
+- [`EVAL_REVIEW_PREP.md`](EVAL_REVIEW_PREP.md) — spoken eval-review script only (points to `DEMO_WRITEUP.md` for tables/images).
 - [`WRITEUP.md`](WRITEUP.md) — the full evidence-first narrative (the brainlift).
 - [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md) — the one-sentence falsifiable gate.
 - [`SUBMISSION.md`](SUBMISSION.md) — the 5-artifact submission checklist + remaining actions.

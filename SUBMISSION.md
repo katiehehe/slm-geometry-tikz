@@ -11,7 +11,7 @@ artifacts (see the per-claim table in [`WRITEUP.md`](WRITEUP.md#appendix--reprod
 | 1 | **Dataset, published** | ✅ built & verified · ⏳ needs HF token to push | `data/*.jsonl`, card `cards/dataset_card.md`, `scripts/publish_hf.py` |
 | 2 | **Model on HF Hub + running demo** | ✅ adapters + demo run locally · ⏳ needs HF token to push | `outputs/qwen3-*`, `scripts/demo.py`, `scripts/demo_web.py`, card `cards/model_card.md` |
 | 3 | **Eval harness + results table (base vs tuned)** | ✅ done | `src/geotikz/harness.py`, `outputs/eval_*.json`, tables below |
-| 4 | **Brainlift (thesis + did data→behavior hold, w/ evidence)** | ✅ done | [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) (short), `WRITEUP.md`, `BEHAVIOR_SPEC.md`, `REVIEW_NOTES.md` |
+| 4 | **Brainlift (thesis + did data→behavior hold, w/ evidence)** | ✅ done | [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md), `WRITEUP.md`, `BEHAVIOR_SPEC.md`, `REVIEW_NOTES.md` |
 | 5 | **3–5 min demo video** | ⏳ needs recording | script: [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md) |
 
 **Legend:** ✅ complete · ⏳ needs a user action (HF token / recording). Nothing is blocked
@@ -99,7 +99,7 @@ Reproduce any row: `outputs/eval_*.json`, `outputs/*/coverage_stats.json`,
 
 ## 4. Brainlift
 
-- **Start here:** [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — short narrative + images for graders.
+- **Start here:** [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — canonical demo write-up (pitch, eval, results, product, terms). Spoken script: [`EVAL_REVIEW_PREP.md`](EVAL_REVIEW_PREP.md).
 - **`WRITEUP.md`** — the full evidence-first narrative: thesis + the representation-pivot
   insight, the 12-model litmus (with the 90%/95% reliability nuance), eval-built-before-
   training, v1 → 1.7B → v2 tables, error analysis → the pivot, the "useful" positioning
