@@ -49,11 +49,11 @@
   \node[below left] at (S) {$S$};
   \node[above right] at (T) {$T$};
   \node[left] at (U) {$U$};
-  \node at (52,74) {$V$};
+  \node at (44,66) {$V$};
 
   % Circle names — small nudges only
   \node[green!55!black] at (18,28) {$C_1$};
-  \node[orange!85!black] at (86,10) {$C_2$};
+  \node[orange!85!black] at (78,10) {$C_2$};
   \node[purple!80!black] at (24,78) {$C_3$};
 
   \node[anchor=west] at (78,84) {$n=725$};
