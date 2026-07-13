@@ -477,9 +477,14 @@ def generate_text(
     specialist_fn: SpecialistFn | None = None,
     specialist_label: LabelLike = "the specialist",
     out_dir: str | Path = DEFAULT_OUT_DIR,
+    allow_frontier: bool = True,
 ) -> RouteResult:
     """Text scene -> figure. Specialist first (if enabled), then a clarify-aware
-    frontier decision (draw OR ask ONE question). Never raises."""
+    frontier decision (draw OR ask ONE question). Never raises.
+
+    When ``allow_frontier`` is False, a failed/truncated specialist attempt returns
+    without calling the frontier (callers can substitute a demo cache instead).
+    """
     description = (description or "").strip()
     if not description:
         return RouteResult(None, "", _CLARIFY_BADGE,
@@ -503,6 +508,12 @@ def generate_text(
                 "generic transform": "This general transform is outside the specialist's range, so a frontier model drew it. ",
                 "many-vertex polygon": "Many-sided regular polygons are still weak for the specialist, so a frontier model drew it. ",
             }.get(why, "This has more constructed points than the specialist handles well, so a frontier model drew it. ")
+            if not allow_frontier:
+                return RouteResult(
+                    None, "", _CLARIFY_BADGE,
+                    f"Specialist skipped ({why}).",
+                    clarify=False,
+                )
         else:
             t0 = time.time()
             norm_desc, normalized = description, False
@@ -535,6 +546,20 @@ def generate_text(
                     "model redrew it. "
                 )
                 spec_reason = "specialist truncated"
+            if not allow_frontier:
+                why = "truncated" if spec_reason == "specialist truncated" else "failed to compile"
+                return RouteResult(
+                    None, "", _CLARIFY_BADGE,
+                    f"Specialist {why}.",
+                    clarify=False,
+                )
+
+    if not allow_frontier:
+        return RouteResult(
+            None, "", _CLARIFY_BADGE,
+            "Specialist unavailable.",
+            clarify=False,
+        )
 
     # 2) frontier: draw OR clarify (one call).
     messages = [

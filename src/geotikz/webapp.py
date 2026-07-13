@@ -166,9 +166,9 @@ def _aime_demo_result(
 ) -> copilot.RouteResult | None:
     """Instant specialist success for the filmed AIME Examples path.
 
-    Live illustrator-4b-v2 often truncates this scene (token cut-off), which
-    triggers a ~60s frontier redraw. Ship the curated specialist TikZ + PNG
-    as-is (do NOT run tidy_labels — it over-moves hand-placed demo labels).
+    Used only when the live specialist fails (truncate / compile). Avoids a ~60s
+    frontier redraw. Ship the curated specialist TikZ + PNG as-is (do NOT run
+    tidy_labels — it over-moves hand-placed demo labels).
     """
     png_src = static_dir / "assets" / "demo" / "aime_2001_II_7_specialist_render.png"
     tikz_src = static_dir / "assets" / "demo" / "aime_2001_II_7.tikz"
@@ -186,7 +186,7 @@ def _aime_demo_result(
         str(dest),
         tikz,
         _attr(lbl),
-        "Specialist drew it (demo cache, compiled).",
+        "Live specialist couldn't finish this one; used the curated demo figure (compiled).",
     )
 
 
@@ -324,17 +324,37 @@ def create_app(
         try:
             scene_hint = (message or "").strip() or None
 
-            # Filming-critical: AIME Examples path must return a visible specialist
-            # figure immediately (live gen truncates -> 60s+ frontier silence).
-            # Do NOT gate on the specialist toggle — local default is OFF, and the
-            # demo cache is a pre-baked specialist render, not a live model call.
+            # AIME Examples: try the LIVE specialist first. Only if it fails
+            # (truncate / compile) use the curated demo cache — never a 60s+
+            # frontier redraw on this filmed path.
             if _is_aime_demo_prompt(scene_hint):
+                live: copilot.RouteResult | None = None
+                if has_specialist:
+                    live = generate_text(
+                        scene_hint,
+                        True,
+                        model,
+                        specialist_fn=specialist_fn,
+                        specialist_label=specialist_label,
+                        out_dir=out_dir,
+                        allow_frontier=False,
+                    )
+                if live is not None and live.png:
+                    if attachment_path:
+                        live = copilot.RouteResult(
+                            live.png, live.tikz, live.badge,
+                            "Used the verified scene text with the screenshot, then "
+                            + (live.note[0].lower() + live.note[1:] if live.note else live.note),
+                        )
+                    payload = _route_payload(live, out_dir, keep_tikz=keep_tikz)
+                    payload["pending"] = None
+                    return payload
+
                 demo = _aime_demo_result(
                     static_dir=static_dir, out_dir=out_dir, specialist_label=specialist_label,
                 )
                 if demo is not None:
                     if attachment_path:
-                        # Match generate_image note style when screenshot is attached.
                         demo = copilot.RouteResult(
                             demo.png, demo.tikz, demo.badge,
                             "Used the verified scene text with the screenshot, then "
