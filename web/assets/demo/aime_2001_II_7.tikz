@@ -16,9 +16,9 @@
   \draw[thick] (P) -- (Q) -- (R) -- cycle;
 
   % Side lengths — kept clear of point labels S / U / T
-  \node[left=4pt] at (-6,40) {$90$};
-  \node[below left=8pt] at (55,-8) {$120$};
-  \node[right=8pt] at (62,58) {$150$};
+  \node[left] at (-6,40) {$90$};
+  \node[below] at (55,-8) {$120$};
+  \node[above right] at (62,58) {$150$};
 
   % Construction segments
   \draw[blue!70!black, very thick] (S) -- (T);
@@ -31,7 +31,7 @@
 
   % Distance between C2 and C3 centers — nudged left of the clutter
   \draw[dashed, gray!70!black] (C3) -- (C2);
-  \node[above left=8pt, gray!70!black] at (32,38) {$\sqrt{10n}$};
+  \node[gray!70!black] at (32,38) {$\sqrt{10n}$};
 
   % Right-angle marks
   \draw (0,6) -- (6,6) -- (6,0);
@@ -43,18 +43,18 @@
     \fill (\X) circle (1.4);
 
   % Vertex / construction-point labels
-  \node[below left=4pt] at (P) {$P$};
-  \node[above left=4pt] at (Q) {$Q$};
-  \node[below right=4pt] at (R) {$R$};
-  \node[below right=4pt] at (S) {$S$};
-  \node[below=4pt] at (T) {$T$};
-  \node[above=4pt] at (U) {$U$};
-  \node[above=4pt] at (52,74) {$V$};
+  \node[below left] at (P) {$P$};
+  \node[above left] at (Q) {$Q$};
+  \node[below right] at (R) {$R$};
+  \node[below left] at (S) {$S$};
+  \node[above right] at (T) {$T$};
+  \node[left] at (U) {$U$};
+  \node at (52,74) {$V$};
 
   % Circle names — small nudges only
-  \node[below left=4pt, green!55!black] at (18,28) {$C_1$};
-  \node[below right=4pt, orange!85!black] at (86,10) {$C_2$};
-  \node[above left=4pt, purple!80!black] at (24,78) {$C_3$};
+  \node[green!55!black] at (18,28) {$C_1$};
+  \node[orange!85!black] at (86,10) {$C_2$};
+  \node[purple!80!black] at (24,78) {$C_3$};
 
-  \node[above right=8pt] at (78,84) {$n=725$};
+  \node[anchor=west] at (78,84) {$n=725$};
 \end{tikzpicture}
