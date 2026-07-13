@@ -167,25 +167,43 @@ def _aime_demo_result(
     """Instant specialist success for the filmed AIME Examples path.
 
     Live illustrator-4b-v2 often truncates this scene (token cut-off), which
-    triggers a ~60s frontier redraw. Ship the known-good specialist render.
+    triggers a ~60s frontier redraw. Ship the known-good specialist TikZ, then
+    run the same label-tidying + compile path as every other figure.
     """
     png_src = static_dir / "assets" / "demo" / "aime_2001_II_7_specialist_render.png"
     tikz_src = static_dir / "assets" / "demo" / "aime_2001_II_7.tikz"
-    if not png_src.is_file() or not tikz_src.is_file():
+    if not tikz_src.is_file():
         return None
     dest = out_dir / "aime_2001_II_7_demo.png"
     try:
-        shutil.copy2(png_src, dest)
         tikz = tikz_src.read_text(encoding="utf-8")
     except Exception:  # noqa: BLE001
-        logger.exception("AIME demo assets missing")
+        logger.exception("AIME demo TikZ missing")
         return None
+
+    # Same gate as live chat: tidy labels, compile; fall back to baked PNG.
+    from . import serve as _serve
+
+    tidied = _serve.tidy_labels(tikz)
+    body = tidied if (tidied or "").strip() else tikz
+    r = _serve.compile_and_render(body, dest, dpi=220)
+    if not r.ok:
+        if png_src.is_file():
+            try:
+                shutil.copy2(png_src, dest)
+                body = tikz
+            except Exception:  # noqa: BLE001
+                logger.exception("AIME demo PNG fallback failed")
+                return None
+        else:
+            return None
+
     lbl = _resolve_label(specialist_label)
     return copilot.RouteResult(
         str(dest),
-        tikz,
+        body,
         _attr(lbl),
-        "Specialist drew it (demo cache, compiled).",
+        "Specialist drew it (demo cache, labels tidied, compiled).",
     )
 
 

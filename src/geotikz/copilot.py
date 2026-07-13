@@ -14,8 +14,10 @@ routing / rendering / attribution logic:
     base+LoRA OR a Modal GPU call), else a frontier model prompted for
     coordinate-free constructions. Escalates to frontier if the specialist's
     figure doesn't compile / is degenerate.
-  * IMAGE (screenshot) / PDF -> a frontier VISION model reads it and emits a
-    construction figure (the narrow specialist is text-only).
+  * IMAGE (screenshot) / PDF -> when the specialist is enabled, a frontier vision
+    model *reads* the scene as text, then the text router can send in-vocab
+    constructions to the trained illustrator; otherwise frontier vision draws
+    TikZ directly.
   * PASTE TikZ  -> render an existing figure as-is and drop straight into the
     edit loop (tweak a figure you already have).
   * EDIT (a follow-up once a figure exists) -> the current TikZ + your
@@ -112,10 +114,10 @@ _SCENE_SYSTEM = CONSTRUCTION_SYSTEM_PROMPT + (
     "above. ERR TOWARD DRAWING: make reasonable default choices for minor unspecified "
     "details rather than asking.\n"
     "  - Only if the request is GENUINELY ambiguous in a way that changes the figure "
-    "(e.g. 'a triangle with a circle' — incircle vs circumcircle vs arbitrary), output "
+    "(e.g. 'a triangle with a circle': incircle vs circumcircle vs arbitrary), output "
     "EXACTLY one line: 'CLARIFY: <one short question>'.\n"
     "  - If the request is NOT about geometry, output EXACTLY: "
-    "'CLARIFY: I draw geometry diagrams — describe a geometry scene or problem and I'll illustrate it.'"
+    "'CLARIFY: I draw geometry diagrams. Describe a geometry scene or problem and I'll illustrate it.'"
 )
 _EDIT_SYSTEM_CLARIFY = EDIT_SYSTEM + (
     "\n\nCOPILOT ADDENDUM: If the edit instruction is clear, output the full revised "
@@ -127,7 +129,7 @@ _VISION_SYSTEM = CONSTRUCTION_SYSTEM_PROMPT + (
     "\n\nCOPILOT ADDENDUM: If the image shows a geometry problem/figure, output the single "
     "tikzpicture as instructed above. If the image is NOT a geometry problem (or is "
     "unreadable), output EXACTLY one line: 'CLARIFY: That image doesn't look like a geometry "
-    "problem — try a clearer screenshot, or describe the scene in words.' Never output both."
+    "problem. Try a clearer screenshot, or describe the scene in words.' Never output both."
 )
 
 
@@ -163,7 +165,7 @@ def _retry(fn, *, tries: int = 3, base: float = 0.6):
 
 def _combine(original: str, answer: str) -> str:
     """Fold a clarifying answer back into the original request."""
-    return f"{original.strip()} — {answer.strip()}"
+    return f"{original.strip()}: {answer.strip()}"
 
 
 _CLARIFY_BADGE = "*I need one detail to draw this*"
@@ -412,9 +414,27 @@ def _data_url(image_path: str) -> str:
 
 
 def _render(text: str, stem: str, out_dir: str | Path) -> tuple[serve.RenderResult, str]:
+    """Extract TikZ, tidy labels (all models), compile. Fall back if tidy breaks compile.
+
+    This is the single product render gate: every chat / paste / board / repair
+    figure should pass through here so label overlap is minimized automatically.
+    """
     tikz = _tikz(text)
+    if not tikz:
+        png = Path(out_dir) / f"{stem}.png"
+        return serve.compile_and_render(text, png, dpi=200), ""
+    tidied = serve.tidy_labels(tikz)
     png = Path(out_dir) / f"{stem}.png"
-    return serve.compile_and_render(text, png, dpi=200), tikz
+    # Prefer compiling the tidied figure; if that fails, keep original geometry/labels.
+    body = tidied if tidied != tikz else tikz
+    r = serve.compile_and_render(body, png, dpi=200)
+    if r.ok:
+        return r, body
+    if tidied != tikz:
+        r2 = serve.compile_and_render(tikz, png, dpi=200)
+        if r2.ok:
+            return r2, tikz
+    return r, body
 
 
 def _self_repair(tikz: str, reason: str, model: str) -> serve.GenResult:
@@ -463,7 +483,7 @@ def generate_text(
     description = (description or "").strip()
     if not description:
         return RouteResult(None, "", _CLARIFY_BADGE,
-                           "Describe a geometry scene — points, shapes, and how they relate — and I'll draw it.",
+                           "Describe a geometry scene (points, shapes, and how they relate) and I'll draw it.",
                            clarify=True)
     stem = serve.dhash(description + str(time.time()))
     prefix = ""
@@ -495,13 +515,8 @@ def generate_text(
             except Exception as e:  # noqa: BLE001 - specialist down -> frontier
                 logger.warning("specialist failed after retries: %s", e)
             if spec_tikz:
-                # Tidy the specialist's labels (push outward, no fill) for legibility;
-                # if the tidied figure doesn't compile, fall back to the ORIGINAL so this
-                # aesthetic pass can never break a figure.
-                tidied = serve.tidy_labels(spec_tikz)
-                r, tikz = _render(tidied, stem, out_dir)
-                if not r.ok and tidied != spec_tikz:
-                    r, tikz = _render(spec_tikz, stem, out_dir)
+                # Shared _render tidies labels for every model; fall back is inside _render.
+                r, tikz = _render(spec_tikz, stem, out_dir)
                 if r.ok:
                     lbl = _resolve_label(specialist_label)
                     if normalized and lbl.endswith(")"):
@@ -512,7 +527,14 @@ def generate_text(
                             f"Specialist drew it in {dt:.0f}s (coordinate-free, compiled).")
                     return RouteResult(str(Path(r.png_path)), tikz, _attr(lbl), note)
             spec_reason = "specialist fell back"
+            # Prefer an honest reason when the specialist returned incomplete TikZ.
             prefix = "The specialist couldn't draw this one, so a frontier model did. "
+            if spec_tikz and "\\begin{tikzpicture}" in spec_tikz and "\\end{tikzpicture}" not in spec_tikz:
+                prefix = (
+                    "The specialist's figure was cut off before it finished, so a frontier "
+                    "model redrew it. "
+                )
+                spec_reason = "specialist truncated"
 
     # 2) frontier: draw OR clarify (one call).
     messages = [
@@ -522,7 +544,7 @@ def generate_text(
     res = gateway.chat(messages, frontier_model, max_tokens=4096)  # gateway retries transient 429/5xx/conn
     if not res.ok:
         return RouteResult(None, "", _CLARIFY_BADGE,
-                           "I'm having trouble reaching the drawing model right now — please try again in a moment.",
+                           "I'm having trouble reaching the drawing model right now. Please try again in a moment.",
                            clarify=True)
     q = _parse_clarify(res.text)
     if q is not None:
@@ -539,9 +561,54 @@ def generate_text(
         return RouteResult(str(Path(r.png_path)), tikz, _attr(_frontier_inner(frontier_model, spec_reason)),
                            prefix + f"Frontier drew it in {res.latency_s:.0f}s (coordinate-free, compiled).")
     return RouteResult(None, "", _CLARIFY_BADGE,
-                       "I couldn't turn that into a clean figure. Could you add a detail — key points, a shape, "
+                       "I couldn't turn that into a clean figure. Could you add a detail: key points, a shape, "
                        "or a relationship (e.g. 'triangle ABC with its circumcircle')?",
                        clarify=True)
+
+
+_VISION_READ_SYSTEM = (
+    "You read geometry problem screenshots. Output ONLY a concise English description of the "
+    "geometric configuration to draw (shapes, named points, lengths when given, and constructions "
+    "like incenter/incircle, tangents, perpendiculars, midpoints). No TikZ, no solution, no "
+    "multiple choice. If the image is not a geometry problem, output EXACTLY one line: "
+    "'CLARIFY: That image doesn't look like a geometry problem. Try a clearer screenshot, or "
+    "describe the scene in words.'"
+)
+
+
+def _vision_read_scene(image_path: str, vision_model: str, *, source_name: str = "screenshot") -> RouteResult | str:
+    """Vision OCR/read -> scene description string, or a clarify RouteResult."""
+    try:
+        url = _data_url(image_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("could not read %s: %s", source_name, e)
+        return RouteResult(None, "", _CLARIFY_BADGE,
+                           f"I couldn't read that {source_name}. Try a clear PNG/JPG, or just describe the scene in words.",
+                           clarify=True)
+    messages = [
+        {"role": "system", "content": _VISION_READ_SYSTEM},
+        {"role": "user", "content": [
+            {"type": "text", "text": "Read the geometry problem in this image and describe the "
+             "configuration to illustrate."},
+            {"type": "image_url", "image_url": {"url": url}},
+        ]},
+    ]
+    res = gateway.chat(messages, vision_model, max_tokens=800)
+    if not res.ok:
+        return RouteResult(None, "", _CLARIFY_BADGE,
+                           "I'm having trouble reading the image right now. Please try again shortly, "
+                           "or describe the scene in words.",
+                           clarify=True)
+    q = _parse_clarify(res.text)
+    if q is not None:
+        return RouteResult(None, "", _CLARIFY_BADGE, q, clarify=True)
+    desc = (res.text or "").strip()
+    if not desc:
+        return RouteResult(None, "", _CLARIFY_BADGE,
+                           f"I couldn't extract a geometry scene from that {source_name}. "
+                           "Try a clearer shot, or describe it in words.",
+                           clarify=True)
+    return desc
 
 
 def generate_image(
@@ -550,9 +617,53 @@ def generate_image(
     *,
     out_dir: str | Path = DEFAULT_OUT_DIR,
     source_name: str = "screenshot",
+    use_specialist: bool = False,
+    specialist_fn: SpecialistFn | None = None,
+    specialist_label: LabelLike = "the specialist",
+    frontier_model: str | None = None,
+    scene_text: str | None = None,
 ) -> RouteResult:
-    """A problem image (screenshot/PDF page) -> figure via a frontier vision model.
-    Clarify-aware (non-geometry / unreadable image -> a friendly redirect). Never raises."""
+    """A problem image (screenshot/PDF page) -> figure.
+
+    When ``use_specialist`` and a ``specialist_fn`` are provided, a frontier vision
+    model first *reads* the scene as text, then the usual text router can send
+    in-vocab constructions to the trained illustrator. If ``scene_text`` is given
+    (e.g. a verified demo prompt attached with the screenshot), that text is used
+    instead of vision OCR so routing/specialist see clean in-vocab input while the
+    UI can still show the image. Otherwise the vision model draws TikZ directly
+    (frontier vision). Clarify-aware. Never raises.
+    """
+    # Specialist path: known scene text OR vision-read -> text router.
+    if use_specialist and specialist_fn is not None:
+        known = (scene_text or "").strip()
+        used_known = bool(known)
+        if known:
+            read = known
+        else:
+            read = _vision_read_scene(image_path, vision_model, source_name=source_name)
+            if isinstance(read, RouteResult):
+                return read
+        res = generate_text(
+            read,
+            True,
+            frontier_model or FRONTIER_MODELS[0],
+            specialist_fn=specialist_fn,
+            specialist_label=specialist_label,
+            out_dir=out_dir,
+        )
+        if res.clarify:
+            return res
+        # Prefix note so the badge path is clear in chat.
+        if res.note and not res.note.lower().startswith(("read", "used")):
+            lead = (
+                f"Used the verified scene text with the {source_name}, then "
+                if used_known else
+                f"Read the {source_name}, then "
+            )
+            note = res.note[0].lower() + res.note[1:] if res.note else res.note
+            res = RouteResult(res.png, res.tikz, res.badge, lead + note, clarify=False)
+        return res
+
     inner = f"`{vision_model}` (frontier vision)"
     try:
         url = _data_url(image_path)
@@ -572,7 +683,7 @@ def generate_image(
     res = gateway.chat(messages, vision_model, max_tokens=4096)
     if not res.ok:
         return RouteResult(None, "", _CLARIFY_BADGE,
-                           "I'm having trouble reading the image right now — please try again shortly, "
+                           "I'm having trouble reading the image right now. Please try again shortly, "
                            "or describe the scene in words.",
                            clarify=True)
     q = _parse_clarify(res.text)
@@ -600,8 +711,13 @@ def generate_pdf(
     vision_model: str,
     *,
     out_dir: str | Path = DEFAULT_OUT_DIR,
+    use_specialist: bool = False,
+    specialist_fn: SpecialistFn | None = None,
+    specialist_label: LabelLike = "the specialist",
+    frontier_model: str | None = None,
+    scene_text: str | None = None,
 ) -> RouteResult:
-    """PDF upload -> rasterise page 1 (PyMuPDF) -> vision route. Never raises."""
+    """PDF upload -> rasterise page 1 (PyMuPDF) -> image route. Never raises."""
     if not pdf_path:
         return RouteResult(None, "", _CLARIFY_BADGE, "Upload a PDF and I'll read page 1.", clarify=True)
     try:
@@ -612,7 +728,12 @@ def generate_pdf(
                            "I couldn't read that PDF (it may be empty or not a valid PDF). "
                            "Try another file, or describe the scene in words.",
                            clarify=True)
-    return generate_image(png_in, vision_model, out_dir=out_dir, source_name="PDF (page 1)")
+    return generate_image(
+        png_in, vision_model, out_dir=out_dir, source_name="PDF (page 1)",
+        use_specialist=use_specialist, specialist_fn=specialist_fn,
+        specialist_label=specialist_label, frontier_model=frontier_model,
+        scene_text=scene_text,
+    )
 
 
 def render_pasted(
@@ -631,7 +752,7 @@ def render_pasted(
     r, tikz = _render(tikz_text, stem, out_dir)
     if r.ok:
         return RouteResult(str(Path(r.png_path)), tikz, _attr("you (pasted TikZ)", kind="imported"),
-                           "Rendered your figure — now edit it by chat below.")
+                           "Rendered your figure. Now edit it by chat below.")
     if tikz and repair_model:  # optional: one frontier fix so a near-good paste still lands
         rep = _self_repair(tikz, r.reason, repair_model)
         r2, tikz2 = _render(rep.text, stem, out_dir)
@@ -639,7 +760,7 @@ def render_pasted(
             return RouteResult(str(Path(r2.png_path)), tikz2, _attr(_frontier_inner(repair_model), kind="repaired import"),
                                "Your TikZ needed one fix to compile; rendered.")
     return RouteResult(None, "", _CLARIFY_BADGE,
-                       f"That TikZ didn't compile (`{r.reason}`) — I kept your current figure. "
+                       f"That TikZ didn't compile (`{r.reason}`). I kept your current figure. "
                        "Check that it's a complete, self-contained tikzpicture.",
                        clarify=True)
 
@@ -656,7 +777,7 @@ def edit_figure(
     instruction = (instruction or "").strip()
     if not current_tikz:
         return RouteResult(None, "", _CLARIFY_BADGE,
-                           "There's no figure yet — describe a scene and I'll draw one first.", clarify=True)
+                           "There's no figure yet. Describe a scene and I'll draw one first.", clarify=True)
     messages = [
         {"role": "system", "content": _EDIT_SYSTEM_CLARIFY},
         {"role": "user", "content": f"Current figure:\n{current_tikz}\n\n"
@@ -665,7 +786,7 @@ def edit_figure(
     res = gateway.chat(messages, edit_model, max_tokens=4096)
     if not res.ok:
         return RouteResult(None, "", _CLARIFY_BADGE,
-                           "I'm having trouble reaching the model to apply that edit — please try again in a moment.",
+                           "I'm having trouble reaching the model to apply that edit. Please try again in a moment.",
                            clarify=True)
     q = _parse_clarify(res.text)
     if q is not None:
@@ -715,6 +836,12 @@ class _BasicAuthMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # Figure PNGs use unguessable hashed names; allow unauthenticated GETs so
+        # <img> tags work even when the browser omits Basic auth on subresources.
+        path = scope.get("path") or ""
+        if path.startswith("/api/figures/"):
             await self.app(scope, receive, send)
             return
         raw = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
@@ -836,6 +963,25 @@ _EXAMPLE_LABELS = [
     "Regular hexagon",
 ]
 EXAMPLE_CHOICES = list(zip(_EXAMPLE_LABELS, EXAMPLE_PROMPTS))
+
+# AIME 2001-II-7: known in-vocab success for illustrator-4b-v2 (incircle + tangents +
+# perpendiculars; op-vocab routing keeps it on the specialist). Demo PNG lives under
+# web/assets/demo/ — Examples menu attaches it so paste/drag demos hit the same path.
+AIME_2001_II_7 = (
+    "Let triangle PQR be a right triangle with PQ = 90, PR = 120, and QR = 150. "
+    "Let C1 be the inscribed circle. Construct ST with S on PR and T on QR, such that "
+    "ST is perpendicular to PR and tangent to C1. Construct UV with U on PQ and V on QR "
+    "such that UV is perpendicular to PQ and tangent to C1. Let C2 be the inscribed circle "
+    "of triangle RST and C3 the inscribed circle of triangle QUV. Draw triangle PQR, "
+    "incircle C1, segments ST and UV, and incircles C2 and C3."
+)
+AIME_DEMO_IMAGE = "/assets/demo/aime_2001_II_7.png"
+AIME_DEMO_EXAMPLE = {
+    "label": "AIME screenshot (2001-II-7)",
+    "prompt": AIME_2001_II_7,
+    "image_url": AIME_DEMO_IMAGE,
+    "saved": False,
+}
 
 DEFAULT_EXAMPLES_STORE = DEFAULT_OUT_DIR / "user_examples.json"
 
@@ -1190,7 +1336,7 @@ _JSX_CDN_CSS = "https://cdn.jsdelivr.net/npm/jsxgraph/distrib/jsxgraph.css"
 
 _EMPTY_BOARD = (
     "<div style='padding:14px;color:#666;font-family:system-ui,sans-serif;font-size:14px'>"
-    "Generate a figure and it becomes <b>editable</b> here — drag points, resize circles, "
+    "Generate a figure and it becomes <b>editable</b> here: drag points, resize circles, "
     "add points, then <b>Apply board edits</b> to push changes into the chat figure / TikZ, "
     "or export TikZ/SVG.</div>"
 )
@@ -1503,10 +1649,10 @@ def build_ui(
                 return gr.update(), "_Already in the examples list._"
             saved.append(prompt)
             _persist_examples(saved)
-            return gr.update(choices=_dropdown_choices(saved), value=prompt), "_Saved — it's in the dropdown._"
+            return gr.update(choices=_dropdown_choices(saved), value=prompt), "_Saved; it's in the dropdown._"
         except Exception:  # noqa: BLE001
             logger.exception("do_save crashed")
-            return gr.update(), "_Couldn't save that one — try again._"
+            return gr.update(), "_Couldn't save that one; try again._"
 
     def _refresh_examples():
         return gr.update(choices=_dropdown_choices(_load_saved_examples(store_path)))
@@ -1516,7 +1662,7 @@ def build_ui(
             if not selected:
                 return gr.update(), "_Pick a saved (★) example to remove._"
             if selected in EXAMPLE_PROMPTS:
-                return gr.update(), "_That's a built-in example — can't remove it._"
+                return gr.update(), "_That's a built-in example; can't remove it._"
             saved = _load_saved_examples(store_path)
             if selected in saved:
                 saved.remove(selected)
@@ -1525,9 +1671,9 @@ def build_ui(
             return gr.update(), "_Not a saved example._"
         except Exception:  # noqa: BLE001
             logger.exception("do_remove crashed")
-            return gr.update(), "_Couldn't remove that one — try again._"
+            return gr.update(), "_Couldn't remove that one; try again._"
 
-    CRASH = "Sorry — something hiccuped on my end. Your figure is safe; please try again."
+    CRASH = "Sorry, something hiccuped on my end. Your figure is safe; please try again."
 
     # Outputs order: [chat, cur_tikz, cur_png, fig, code, badge, pending, board].
     # board defaults to gr.update() (unchanged) unless a new figure is drawn.
@@ -1553,9 +1699,9 @@ def build_ui(
             pending = {"kind": pend_kind, "text": pend_text} if pend_kind else None
             return _out(_finish_assistant(history, res.note), current_tikz, current_png, _CLARIFY_BADGE, pending)
         if res.png:  # a new figure was drawn -> refresh the interactive board too
-            return _out(_finish_assistant(history, f"{res.badge} — {res.note}"), res.tikz, res.png,
+            return _out(_finish_assistant(history, f"{res.badge}: {res.note}"), res.tikz, res.png,
                         res.badge, None, board=_board_html(res.tikz))
-        return _out(_finish_assistant(history, f"{res.badge} — {res.note}"),  # keep last figure
+        return _out(_finish_assistant(history, f"{res.badge}: {res.note}"),  # keep last figure
                     current_tikz, current_png, res.badge, None)
 
     def _generate_impl(message, image, history, current_tikz, current_png, use_specialist, frontier_model, pending):
@@ -1594,9 +1740,9 @@ def build_ui(
         if not message and not attachment:  # nothing submitted -> no echo
             return (history or []), message, attachment, message, attachment
         if attachment and _is_pdf(attachment):
-            user_turn = "📄 (PDF upload)" + (f" — {message}" if message else "")
+            user_turn = "📄 (PDF upload)" + (f": {message}" if message else "")
         elif attachment:
-            user_turn = "🖼️ (screenshot)" + (f" — {message}" if message else "")
+            user_turn = "🖼️ (screenshot)" + (f": {message}" if message else "")
         else:
             user_turn = message
         h = (history or []) + [{"role": "user", "content": user_turn},
@@ -1628,7 +1774,7 @@ def build_ui(
         except Exception:  # noqa: BLE001
             logger.exception("gen_send crashed")
             return _out(_finish_assistant(history, CRASH), current_tikz, current_png,
-                        "_Something hiccuped — try again._", pending)
+                        "_Something hiccuped; try again._", pending)
 
     def gen_example(selected, history, current_tikz, current_png, use_specialist, frontier_model, pending):
         if not selected:
@@ -1640,7 +1786,7 @@ def build_ui(
         except Exception:  # noqa: BLE001
             logger.exception("gen_example crashed")
             return _out(_finish_assistant(history, CRASH), current_tikz, current_png,
-                        "_Something hiccuped — try again._", pending)
+                        "_Something hiccuped; try again._", pending)
 
     def gen_paste(tikz_text, history, current_tikz, current_png, pending):
         if not (tikz_text or "").strip():
@@ -1648,13 +1794,13 @@ def build_ui(
         try:
             res = render_pasted(tikz_text, out_dir=out_dir, repair_model=_repair_model())
             if res.png:
-                return _out(_finish_assistant(history, f"{res.badge} — {res.note}"),
+                return _out(_finish_assistant(history, f"{res.badge}: {res.note}"),
                             res.tikz, res.png, res.badge, None, board=_board_html(res.tikz))
             return _out(_finish_assistant(history, res.note), current_tikz, current_png, _CLARIFY_BADGE, pending)
         except Exception:  # noqa: BLE001
             logger.exception("gen_paste crashed")
             return _out(_finish_assistant(history, CRASH), current_tikz, current_png,
-                        "_Something hiccuped — try again._", pending)
+                        "_Something hiccuped; try again._", pending)
 
     def gen_pdf(pdf_path, history, current_tikz, current_png, frontier_model, pending):
         if not pdf_path:
@@ -1666,7 +1812,7 @@ def build_ui(
         except Exception:  # noqa: BLE001
             logger.exception("gen_pdf crashed")
             return _out(_finish_assistant(history, CRASH), current_tikz, current_png,
-                        "_Something hiccuped — try again._", pending)
+                        "_Something hiccuped; try again._", pending)
 
     def new_figure():
         return _out([], None, None, "_Started a new figure._", None, board=_EMPTY_BOARD)
@@ -1683,7 +1829,7 @@ def build_ui(
             if not tikz:
                 return _out(
                     history or [], current_tikz, current_png,
-                    "_No board figure to apply — generate one first, then edit the board._",
+                    "_No board figure to apply. Generate one first, then edit the board._",
                     pending,
                 )
             if "tikzpicture" not in tikz:
@@ -1694,18 +1840,18 @@ def build_ui(
             if not r.ok:
                 badge = _attr("you (board edits)", kind="apply failed")
                 note = (
-                    f"Board edits didn't compile (`{r.reason}`) — kept your current figure."
+                    f"Board edits didn't compile (`{r.reason}`). Kept your current figure."
                 )
                 h = (history or []) + [
                     {"role": "user", "content": user_turn},
-                    {"role": "assistant", "content": f"{badge} — {note}"},
+                    {"role": "assistant", "content": f"{badge}: {note}"},
                 ]
                 return _out(h, current_tikz, current_png, badge, pending)
             badge = _attr("you (board edits)", kind="applied")
             note = "Applied board edits to the figure."
             h = (history or []) + [
                 {"role": "user", "content": user_turn},
-                {"role": "assistant", "content": f"{badge} — {note}"},
+                {"role": "assistant", "content": f"{badge}: {note}"},
             ]
             # Keep the interactive board as-is (constraints still live); only
             # sync the static figure / TikZ / chat state for follow-up edits.
@@ -1716,11 +1862,11 @@ def build_ui(
                 {"role": "user", "content": "🖐 (apply board edits)"},
                 {"role": "assistant", "content": CRASH},
             ]
-            return _out(h, current_tikz, current_png, "_Something hiccuped — try again._", pending)
+            return _out(h, current_tikz, current_png, "_Something hiccuped; try again._", pending)
 
     # -- clean, State-free API endpoints (for gradio_client / HTTP tests) --
     def _api_msg(res):
-        return res.note if res.clarify else f"{res.badge} — {res.note}"
+        return res.note if res.clarify else f"{res.badge}: {res.note}"
 
     def api_generate(description, frontier_model):
         try:
@@ -1730,7 +1876,7 @@ def build_ui(
             return res.png, (res.tikz or ""), _api_msg(res)
         except Exception:  # noqa: BLE001
             logger.exception("api_generate crashed")
-            return None, "", "Sorry — something hiccuped; please try again."
+            return None, "", "Sorry, something hiccuped; please try again."
 
     def api_edit(current_tikz, instruction, frontier_model):
         try:
@@ -1739,7 +1885,7 @@ def build_ui(
             return res.png, (res.tikz or ""), _api_msg(res)
         except Exception:  # noqa: BLE001
             logger.exception("api_edit crashed")
-            return None, "", "Sorry — something hiccuped; please try again."
+            return None, "", "Sorry, something hiccuped; please try again."
 
     def api_paste(tikz_text):
         try:
@@ -1747,7 +1893,7 @@ def build_ui(
             return res.png, (res.tikz or ""), _api_msg(res)
         except Exception:  # noqa: BLE001
             logger.exception("api_paste crashed")
-            return None, "", "Sorry — something hiccuped; please try again."
+            return None, "", "Sorry, something hiccuped; please try again."
 
     def api_pdf(pdf_path, frontier_model):
         try:
@@ -1757,7 +1903,7 @@ def build_ui(
             return res.png, (res.tikz or ""), _api_msg(res)
         except Exception:  # noqa: BLE001
             logger.exception("api_pdf crashed")
-            return None, "", "Sorry — something hiccuped; please try again."
+            return None, "", "Sorry, something hiccuped; please try again."
 
     # Compact chat-first CSS: tighter composer row, less panel chrome.
     _UI_CSS = """
@@ -1784,7 +1930,7 @@ def build_ui(
                 with gr.Row(elem_id="composer-row"):
                     msg = gr.Textbox(
                         label="Message", lines=2, elem_id="msg-box", scale=5, show_label=False,
-                        placeholder="Describe a scene or edit — Enter to send, Shift+Enter for a new line")
+                        placeholder="Describe a scene or edit. Enter to send, Shift+Enter for a new line")
                     attach_file = gr.File(
                         label="Attach image/PDF",
                         file_types=[".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf"],
@@ -1829,7 +1975,7 @@ def build_ui(
                             "Apply board edits → figure / TikZ", variant="primary",
                             elem_id="apply-board-btn")
                         gr.Markdown(
-                            "_Drag free (magenta) points — constrained (red) points re-solve. "
+                            "_Drag free (magenta) points; constrained (red) points re-solve. "
                             "Then **Apply board edits** to update the Figure / TikZ / chat state._")
                         board = gr.HTML(_EMPTY_BOARD)
                         # Slot filled by `_APPLY_BOARD_JS` (iframe → postMessage → TikZ text).
