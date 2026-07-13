@@ -3,22 +3,19 @@
 A small open model (Qwen3-0.6B / 1.7B) fine-tuned to do **one** narrow thing reliably:
 turn a **coordinate-free** geometry scene description (relationships only, *no explicit
 coordinates*) into a **single compiling TikZ/PGF figure whose every named point is
-numerically correct** — recovering the hidden numbers from the geometry, not transcribing
+numerically correct**: recovering the hidden numbers from the geometry, not transcribing
 them.
 
 > **Thesis:** you can make a small model *reliably* do one thing by controlling its
-> training data — and *how you frame the target* (compute the answer vs. emit the
+> training data, and *how you frame the target* (compute the answer vs. emit the
 > construction) matters more than model size or dataset size.
 
 **Start here:**
 
-- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) — canonical demo write-up (pitch, eval, results, product, terms, Q&A).
-- [`EVAL_REVIEW_PREP.md`](EVAL_REVIEW_PREP.md) — spoken eval-review script only (points to `DEMO_WRITEUP.md` for tables/images).
-- [`WRITEUP.md`](WRITEUP.md) — the full evidence-first narrative (the brainlift).
-- [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md) — the one-sentence falsifiable gate.
-- [`SUBMISSION.md`](SUBMISSION.md) — the 5-artifact submission checklist + remaining actions.
-- [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md) — the 3–5 min demo shot list.
-- [`cards/`](cards/) — Hugging Face model + dataset cards.
+- [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md): canonical demo write-up (pitch, eval, results, product, terms, Q&A).
+- [`WRITEUP.md`](WRITEUP.md): the full evidence-first narrative (the brainlift).
+- [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md): the one-sentence falsifiable gate.
+- [`cards/`](cards/): Hugging Face model + dataset cards.
 
 ## The result in one table
 
@@ -27,11 +24,11 @@ Pass = **figure-only AND compiles (`tectonic`) AND every named coordinate within
 | Milestone | Pass rate | Evidence |
 | :-- | --: | :-- |
 | Base Qwen3-0.6B (prompted) | 0.003 | `outputs/eval_base_new.json` |
-| Tuned 0.6B — v1 numeric target | 0.464 | `outputs/eval_tuned.json` |
-| Tuned 1.7B — v1 numeric target | 0.598 | `outputs/eval_tuned_1p7b.json` |
-| Tuned 0.6B — **v2 construction target** | **0.989** | `outputs/eval_pgf_tuned.json` |
+| Tuned 0.6B, v1 numeric target | 0.464 | `outputs/eval_tuned.json` |
+| Tuned 1.7B, v1 numeric target | 0.598 | `outputs/eval_tuned_1p7b.json` |
+| Tuned 0.6B, **v2 construction target** | **0.989** | `outputs/eval_pgf_tuned.json` |
 
-Same base model + recipe for v1 vs v2 — **only the target representation changed** — took
+Same base model + recipe for v1 vs v2 (**only the target representation changed**) took
 the hardest construction (foot-of-altitude) from **0.02 → 0.98**.
 
 ---
@@ -67,7 +64,7 @@ All product surfaces emit **coordinate-free constructions** and share one servin
 layer (`src/geotikz/serve.py`): the local specialist (`Qwen/Qwen3-0.6B` + `qwen3-pgf-geotikz`
 LoRA) with its exact training prompt, plus an optional frontier model via the gateway.
 
-**1. Interactive demo** — scene text → rendered figure + copyable TikZ:
+**1. Interactive demo:** scene text → rendered figure + copyable TikZ:
 
 ```bash
 uv run python scripts/demo.py "There is a circle centered at the origin with radius 3. \
@@ -76,7 +73,7 @@ Point A on the circle at 40 degrees. Point B at 200 degrees. M is the midpoint o
 uv run python scripts/demo_web.py            # Gradio web UI (textbox -> figure + TikZ)
 ```
 
-**2. Worksheet generator** — printable geometry worksheet + answer key, all figures
+**2. Worksheet generator:** printable geometry worksheet + answer key, all figures
 guaranteed in-vocabulary and correct-by-construction:
 
 ```bash
@@ -86,7 +83,7 @@ uv run python scripts/make_worksheet.py --source olympiad \
     --topics circumcenter incenter centroid median --n 8      # named constructions
 ```
 
-**3. AIME auto-illustrator** — specialist first, judge-gated frontier fallback, coverage
+**3. AIME auto-illustrator:** specialist first, judge-gated frontier fallback, coverage
 report + rendered gallery:
 
 ```bash
@@ -97,7 +94,7 @@ uv run python scripts/illustrate_aime.py --n 150 --backend modal \
 # -> outputs/aime_gallery_illustrator/index.html + coverage_report.md + coverage_stats.json
 ```
 
-**4. Geometry Figure Copilot** — an interactive chat platform: a geometry scene **or a
+**4. Geometry Figure Copilot:** an interactive chat platform: a geometry scene **or a
 screenshot of a problem** → figure + copyable TikZ, then **edit it conversationally**
 (“make it bigger”, “add color”, “move / rename the labels”). Text routes to the local
 specialist (optional) with a frontier fallback; **screenshots** route to a frontier
@@ -143,8 +140,8 @@ Model inference of base+LoRA thrashes on an 8 GB Mac, so predictions are generat
 | Frontier sweep (12 models × grid) | `uv run python scripts/difficulty_sweep.py --chains 2 3 4 5 6 7 --k 40 --op-dial --workers 16 --out outputs/sweep` then `scripts/sweep_report.py --dir outputs/sweep --threshold 0.9` | `outputs/sweep/{results.json,report.md,pass_heatmap.png}` |
 | Utility eval (specialist vs frontier) | `uv run python scripts/utility_eval.py --n 30 --models openai-group/gpt-5.5 claude-group/claude-opus-4-8` | `outputs/utility_report.md` |
 | Olympiad litmus (4 models × 8 constructions) | `uv run python scripts/olympiad_sweep.py --preset frontier --n 15` | `outputs/olympiad_sweep/results.json` |
-| Illustrator — synthetic coord-verified | `uv run python scripts/eval_syn_illustrator.py --also-base` | `outputs/syn_eval_illustrator/report.md` |
-| Illustrator — AIME coverage | `scripts/illustrate_aime.py …` (above) | `outputs/aime_gallery_illustrator/coverage_stats.json` |
+| Illustrator, synthetic coord-verified | `uv run python scripts/eval_syn_illustrator.py --also-base` | `outputs/syn_eval_illustrator/report.md` |
+| Illustrator, AIME coverage | `scripts/illustrate_aime.py …` (above) | `outputs/aime_gallery_illustrator/coverage_stats.json` |
 | Dataset composition | `uv run python scripts/analyze_dataset.py` | `outputs/renders/data_composition.png` |
 
 Full-model re-run from scratch (needs a GPU): generate preds with
@@ -156,7 +153,7 @@ Full-model re-run from scratch (needs a GPU): generate preds with
 
 ## How the adapters were trained
 
-Supervised fine-tuning with LoRA (TRL + PEFT, bf16) on a Modal serverless GPU — a 0.6B model
+Supervised fine-tuning with LoRA (TRL + PEFT, bf16) on a Modal serverless GPU. A 0.6B model
 trains in minutes, so 4-bit QLoRA was unnecessary. Inference disables Qwen3's "thinking"
 block so output is pure, figure-only TikZ.
 
@@ -187,7 +184,7 @@ prove the loop closes; the real runs use Modal.
 ## Publish to Hugging Face
 
 Cards are ready (`cards/model_card.md`, `cards/dataset_card.md`). Publishing needs your own
-**write token** — the script is dry-run by default:
+**write token**. The script is dry-run by default:
 
 ```bash
 uv run python scripts/publish_hf.py --user YOURNAME              # preview the plan
