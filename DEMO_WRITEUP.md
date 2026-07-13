@@ -12,13 +12,15 @@
 
 I wanted a model that turns a **coordinate-free** geometry scene — relationships only, no explicit coordinates — into a **single compiling TikZ/PGF figure whose every named point is numerically correct**. Not “draw something pretty.” Recover the hidden numbers from the geometry.
 
-That passes the assignment’s litmus: a well-prompted base model (and most frontier models) **cannot already do it reliably**. So fine-tuning earns its keep. The win is not “smarter than GPT.” It’s a tiny, cheap, local specialist that holds a falsifiable behavior every time on the slice it was trained for.
+That passes the assignment’s litmus: a well-prompted base model (and most frontier models) **cannot already do it reliably**. So fine-tuning earns its keep. The win is not “smarter than GPT.” It’s a tiny, cheap, local specialist that holds a falsifiable behavior every time on the **in-domain** slice it was trained for.
+
+**In-domain** means coordinate-free or lightly templated plane-geometry construction scenes that match the specialist’s training vocabulary (triangle centers, feet of altitudes, midpoints, tangents, and similar named constructions). These are scored with the synthetic gate: figure-only TikZ, compiles, and named coordinates within about 0.05 of ground truth. It does **not** mean arbitrary free-form AIME/contest word problems, 3D geometry, or other out-of-vocabulary setups — those are out-of-domain, where compile can still be high but faithfulness is much harder.
 
 ---
 
 ## Terms
 
-**In-domain** means problems that look like what the specialist was trained and evaluated on: coordinate-free (or lightly templated) plane-geometry **construction scenes** in its vocabulary (centers, feet, midpoints, tangents, and similar ops), scored by the synthetic compile-and-coords gate. It does **not** mean arbitrary free-form AIME word problems, 3D geometry, or out-of-distribution contests. **Out-of-domain** is free-form contest text, faithfulness-to-problem judgment, and anything outside the trained vocabulary.
+**In-domain** / **out-of-domain** — see the definition in Pitch above. Out-of-domain also covers free-form contest text and faithfulness-to-problem judgment, not just the synthetic compile-and-coords gate.
 
 **Synthetic gate** means I evaluate on made-up construction scenes with a figure-only TikZ output that must compile under `tectonic` and land every named point within about `0.05` of ground truth. Labels are correct by construction because the generator builds each scene forward from exact coordinates, then strips those coordinates for the model input.
 
@@ -129,7 +131,7 @@ I’d switch to the construction (PGF) target earlier — that was the real unlo
 
 **What is an adapter?** A small LoRA on top of Qwen3. I don’t train a whole model from scratch; I teach the base this one skill: geometry text → TikZ.
 
-**In-domain vs OOD in one line?** In-domain = vocabulary construction scenes under the synthetic gate; OOD = free-form contest / faithfulness / stuff outside the vocab.
+**In-domain vs OOD in one line?** In-domain = coordinate-free / lightly templated construction scenes in the training vocab, scored by the synthetic gate; OOD = free-form AIME/contest text, 3D, or other out-of-vocab setups (compile can still be high; faithfulness is harder).
 
 ---
 

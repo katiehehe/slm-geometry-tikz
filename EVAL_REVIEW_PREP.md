@@ -16,7 +16,7 @@ Hi — I’m Katie, and I built a small specialist model that turns a geometry d
 
 Before I cared about demos, I defined a hard **synthetic gate**. An output only counts as a pass if it’s figure-only TikZ, it compiles with tectonic, and every named point is within about 0.05 of ground truth. The eval scenes are made-up construction scenes with coordinates stripped from the prompt, so the model has to recover the geometry rather than copy numbers.
 
-**In-domain**, for me, means problems that look like what the specialist was trained and eval’d on: coordinate-free or lightly templated plane-geometry construction scenes in its vocabulary — centers, feet, midpoints, tangents, and similar ops — scored by that compile-and-coords gate. It is not arbitrary free-form AIME word problems, not 3D, and not out-of-distribution contests. Out-of-domain is free-form contest text, faithfulness-to-problem judgment, and anything outside that vocabulary.
+**In-domain** means coordinate-free or lightly templated plane-geometry construction scenes that match the specialist’s training vocabulary — triangle centers, feet of altitudes, midpoints, tangents, and similar named constructions — scored by that synthetic gate. It does **not** mean arbitrary free-form AIME/contest word problems, 3D geometry, or other out-of-vocabulary setups; those are out-of-domain, where compile can still be high but faithfulness is much harder.
 
 On top of the synthetic gate, I ran a difficulty sweep across twelve frontier models on the same 800-item grid — things like foot-of-altitude and irregular numbers. Then I evaluated my own models on that gate, and later on real AIME geometry, where I separate “it compiled” from “it’s actually faithful to the problem.”
 
@@ -57,7 +57,7 @@ Because for in-domain constructions my specialist is free at inference, always e
 Compile means the TikZ ran. Faithful means the picture actually matches the problem statement — right configuration, not just “some triangle with a circle.” Local 4B is **24%** faithful; frontier union is about **68%**.
 
 **If they ask what “in-domain” means**  
-In-domain means vocabulary construction scenes under the synthetic compile-and-coords gate — not free-form contest problems or faithfulness scoring.
+In-domain means coordinate-free construction scenes in the specialist’s training vocabulary, scored by the synthetic gate — not free-form AIME/contest problems, 3D, or other out-of-vocab setups.
 
 **If they ask what an adapter is**  
 It’s a small LoRA on top of Qwen3. I don’t train a whole model from scratch; I teach the base model this one skill: geometry text to TikZ.
