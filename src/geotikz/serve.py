@@ -279,6 +279,7 @@ def compile_and_render(
         return RenderResult(False, True, None, "no-figure")
     if not tex.has_tectonic():
         return RenderResult(False, True, None, "tectonic-not-installed")
+    tikz = paint_points_last(tikz)
 
     tmp = Path(tempfile.mkdtemp(prefix="geoserve_"))
     try:
@@ -316,6 +317,47 @@ def compile_and_render(
                             ink_ratio=round(ink, 5), width=w, height=h)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# paint order — point markers above strokes (no line stubs past dots)
+# --------------------------------------------------------------------------- #
+# Specialist / frontier TikZ often draws filled point markers *before* segments.
+# Strokes that end at those centers then sit on top and poke past the dots.
+# Move markers (and tkzDrawPoints) to just before \end{tikzpicture}.
+_POINT_MARKER_LINE_RE = re.compile(
+    r"^[ \t]*\\(?:filldraw|fill)\b(?![^\n]*--[^\n]*cycle)[^\n]*"
+    r"\bcircle\s*(?:\[[^\]]*\]|\([^)]*\))[^\n]*;?[ \t]*\n?",
+    re.M | re.I,
+)
+_TKZ_DRAW_POINTS_LINE_RE = re.compile(
+    r"^[ \t]*\\tkzDrawPoints\b[^\n]*;?[ \t]*\n?",
+    re.M | re.I,
+)
+
+
+def paint_points_last(tikz: str) -> str:
+    """Rewrite a tikzpicture so point dots paint after path strokes.
+
+    Idempotent and geometry-preserving: only reorders marker commands.
+    """
+    src = tikz or ""
+    if "tikzpicture" not in src.lower():
+        return tikz
+    markers = [m.group(0) for m in _POINT_MARKER_LINE_RE.finditer(src)]
+    markers += [m.group(0) for m in _TKZ_DRAW_POINTS_LINE_RE.finditer(src)]
+    if not markers:
+        return tikz
+    out = _POINT_MARKER_LINE_RE.sub("", src)
+    out = _TKZ_DRAW_POINTS_LINE_RE.sub("", out)
+    block = "".join(markers)
+    if not block.endswith("\n"):
+        block += "\n"
+    # Insert before \end{tikzpicture}; if missing, append.
+    m = re.search(r"\\end\{tikzpicture\}", out, flags=re.I)
+    if not m:
+        return out.rstrip() + "\n" + block
+    return out[: m.start()] + block + out[m.start() :]
 
 
 # --------------------------------------------------------------------------- #

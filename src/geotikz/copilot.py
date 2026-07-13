@@ -426,14 +426,17 @@ def _render(text: str, stem: str, out_dir: str | Path) -> tuple[serve.RenderResu
     tidied = serve.tidy_labels(tikz)
     png = Path(out_dir) / f"{stem}.png"
     # Prefer compiling the tidied figure; if that fails, keep original geometry/labels.
-    body = tidied if tidied != tikz else tikz
+    # paint_points_last keeps dots above strokes so lines don't poke past markers.
+    raw_body = tidied if tidied != tikz else tikz
+    body = serve.paint_points_last(raw_body)
     r = serve.compile_and_render(body, png, dpi=200)
     if r.ok:
         return r, body
     if tidied != tikz:
-        r2 = serve.compile_and_render(tikz, png, dpi=200)
+        body2 = serve.paint_points_last(tikz)
+        r2 = serve.compile_and_render(body2, png, dpi=200)
         if r2.ok:
-            return r2, tikz
+            return r2, body2
     return r, body
 
 
