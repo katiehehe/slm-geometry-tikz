@@ -28,11 +28,10 @@
   \foreach \X in {P,Q,R,S,T,U,V,C1,C2,C3}
     \fill (\X) circle (1.25);
 
-  % Side lengths — centered on each side, outside the triangle
-  \node at (-16,45) {$90$};          % mid of PQ
-  \node at (60,-32) {$120$};         % mid of PR (below S)
-  % mid of QR is (60,45)=T; park 150 on the outward normal (3,4)
-  \node at (78,69) {$150$};
+  % Side lengths — outside
+  \node at (-16,45) {$90$};
+  \node at (30,-20) {$120$};
+  \node at (138,20) {$150$};
 
   % Vertices — outside
   \node at (-12,-12) {$P$};
@@ -41,13 +40,13 @@
 
   % U / S — outside
   \node at (-16,60) {$U$};
-  \node at (52,-18) {$S$};
+  \node at (60,-20) {$S$};
 
   % V / T — callouts OUTSIDE the hypotenuse (leader + label)
   \draw[thin, gray!55] (V) -- (22,98);
   \node at (22,104) {$V$};
-  \draw[thin, gray!55] (T) -- (108,58);
-  \node at (116,60) {$T$};
+  \draw[thin, gray!55] (T) -- (92,72);
+  \node at (98,76) {$T$};
 
   % Circle names — C2 deep below the base
   \node[green!55!black] at (30,14) {$C_1$};
