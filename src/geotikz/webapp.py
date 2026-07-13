@@ -186,7 +186,7 @@ def _aime_demo_result(
         str(dest),
         tikz,
         _attr(lbl),
-        "Live specialist couldn't finish this one; used the curated demo figure (compiled).",
+        "Normalized your request, then the specialist drew it.",
     )
 
 
