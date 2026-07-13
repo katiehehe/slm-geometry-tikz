@@ -14,7 +14,7 @@ The thesis is simple. You can make a small open model reliably do one narrow thi
 
 ## Setup
 
-The synthetic gate uses made-up construction scenes. Labels are correct by construction because a small geometry engine in `src/geotikz/scene.py` and `generator.py` builds each scene forward from exact coordinates, then strips those coordinates for the model input. Training is LoRA on Qwen3 on Modal; thinking mode must be off or the figure-only gate fails. I did not distill a teacher for the core specialist.
+The synthetic gate uses made-up construction scenes. Labels are correct by construction because a small geometry engine in [`src/geotikz/scene.py`](src/geotikz/scene.py) and [`src/geotikz/generator.py`](src/geotikz/generator.py) builds each scene forward from exact coordinates, then strips those coordinates for the model input. Training is LoRA on Qwen3 on Modal; thinking mode must be off or the figure-only gate fails. I did not distill a teacher for the core specialist.
 
 **PGF** is the engine under TikZ. “PGF constructions” means emitting calc and intersection macros so LaTeX does the arithmetic instead of the small model inventing coordinates. That pivot took foot-of-altitude from about 2 percent to about 98 percent.
 
@@ -22,7 +22,7 @@ The synthetic gate uses made-up construction scenes. Labels are correct by const
 
 **Faithful**, for AIME and real problems, means a vision judge checked that the drawn construction matches the intended problem scene. Compile is not the same as faithful: a figure can compile and look geometric while still misrepresenting the problem.
 
-On top of the core gate from `BEHAVIOR_SPEC.md`, I ran four evaluations: a synthetic numeric 800-grid with a twelve-model frontier sweep in `outputs/sweep/`; a 280-item PGF construction eval in `outputs/eval_pgf_tuned.json`; a thirty-example utility check versus gpt-5.5 and Opus 4.8 in `outputs/utility_report.md`; and AIME plus real geometry separating compile from vision-judge faithful in the `ILLUSTRATOR_*_REPORT.md` files.
+On top of the core gate from [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md), I ran four evaluations: a synthetic numeric 800-grid with a twelve-model frontier sweep in [`outputs/sweep/`](outputs/sweep/); a 280-item PGF construction eval in [`outputs/eval_pgf_tuned.json`](outputs/eval_pgf_tuned.json); a thirty-example utility check versus gpt-5.5 and Opus 4.8 in [`outputs/utility_report.md`](outputs/utility_report.md); and AIME plus real geometry separating compile from vision-judge faithful in [`ILLUSTRATOR_REPORT.md`](ILLUSTRATOR_REPORT.md), [`ILLUSTRATOR_4B_REPORT.md`](ILLUSTRATOR_4B_REPORT.md), and [`ILLUSTRATOR_4B_V2_REPORT.md`](ILLUSTRATOR_4B_V2_REPORT.md).
 
 The twelve-model pass heatmap below shows how hard the numeric grid still is even for frontier models.
 
@@ -34,10 +34,10 @@ The specialist arc on the synthetic gate is the clearest story. The same style o
 
 | Model / target | Pass rate | Counts | Source |
 | --- | ---: | --- | --- |
-| Base Qwen3-0.6B (numeric) | 0.25% | 2 / 800 | `outputs/eval_base_new.json` |
-| Tuned 0.6B (v1 numeric) | 46.4% | 371 / 800 | `outputs/eval_tuned.json` |
-| Tuned 1.7B (v1 numeric) | 59.8% | 478 / 800 | `outputs/eval_tuned_1p7b.json` |
-| Tuned 0.6B (v2 PGF) | 98.9% | 277 / 280 | `outputs/eval_pgf_tuned.json` |
+| Base Qwen3-0.6B (numeric) | 0.25% | 2 / 800 | [`outputs/eval_base_new.json`](outputs/eval_base_new.json) |
+| Tuned 0.6B (v1 numeric) | 46.4% | 371 / 800 | [`outputs/eval_tuned.json`](outputs/eval_tuned.json) |
+| Tuned 1.7B (v1 numeric) | 59.8% | 478 / 800 | [`outputs/eval_tuned_1p7b.json`](outputs/eval_tuned_1p7b.json) |
+| Tuned 0.6B (v2 PGF) | 98.9% | 277 / 280 | [`outputs/eval_pgf_tuned.json`](outputs/eval_pgf_tuned.json) |
 
 On the numeric 800-grid frontier sweep, no model is reliable every time across the whole landscape. Hard cells are specific constructions plus ugly numbers; foot-of-altitude at chain length four to five with irregular numbers pools around 38 to 44 percent across models. Relative to that grid, the tuned specialists beat some frontier models and do not beat others.
 
@@ -52,7 +52,7 @@ On the numeric 800-grid frontier sweep, no model is reliable every time across t
 | gpt-4o | 43.9% | Beaten by both tuned specialists |
 | Base 0.6B | 0.25% | — |
 
-The full frontier table is in `outputs/sweep/pass_rates.csv`. Failures under the numeric target piled onto projection arithmetic: foot-of-altitude was 2 percent on 0.6B and 13 percent on 1.7B, and scaling barely moved it. Same scenes with a coordinate-free PGF label — for example `\coordinate (D) at ($(A)!(C)!(B)$);` — unlocked the jump above.
+The full frontier table is in [`outputs/sweep/pass_rates.csv`](outputs/sweep/pass_rates.csv). Failures under the numeric target piled onto projection arithmetic: foot-of-altitude was 2 percent on 0.6B and 13 percent on 1.7B, and scaling barely moved it. Same scenes with a coordinate-free PGF label — for example `\coordinate (D) at ($(A)!(C)!(B)$);` — unlocked the jump above.
 
 On the thirty-example in-domain utility check, the specialist hits 100 percent pass and 100 percent compile at essentially zero inference cost. It matches gpt-5.5 construction mode on pass, beats both models’ plain modes, and beats Opus hard when Opus tries constructions and compile collapses on hallucinated macros. It wins on cost and dialect; this laptop MPS run is not a latency win.
 
@@ -73,7 +73,7 @@ The before-and-after render below is the same style of scene failing on base and
 
 ## Product
 
-The specialist became a custom chat SPA on Modal in `web/` and `src/geotikz/webapp.py`. Text, screenshot, or PDF goes in; a figure and TikZ come out; then conversational edits. Routing prefers the specialist for in-vocab constructions and falls back to frontier for out-of-domain scenes, with vision for uploads and one automatic repair pass on non-compiling figures. Every reply attributes which model produced it. I also shipped a CLI, Gradio demo, and worksheet generator for in-vocabulary problems.
+The specialist became a custom chat SPA on Modal in [`web/`](web/) and [`src/geotikz/webapp.py`](src/geotikz/webapp.py). Text, screenshot, or PDF goes in; a figure and TikZ come out; then conversational edits. Routing prefers the specialist for in-vocab constructions and falls back to frontier for out-of-domain scenes, with vision for uploads and one automatic repair pass on non-compiling figures. Every reply attributes which model produced it. I also shipped a CLI, Gradio demo, and worksheet generator for in-vocabulary problems.
 
 ![Custom copilot SPA](outputs/renders/copilot_web_screenshot.png)
 
@@ -83,6 +83,6 @@ I’d switch to the construction PGF target earlier — that was the real unlock
 
 ## Assignment checklist
 
-The Behavior Spec is [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md). The dataset is under `data/*.jsonl` with [`cards/dataset_card.md`](cards/dataset_card.md). The model and demo are the adapters under `outputs/qwen3-*`, the live URL above, and [`cards/model_card.md`](cards/model_card.md). The eval harness and tables are in `src/geotikz/harness.py`, this write-up, and [`WRITEUP.md`](WRITEUP.md). The brainlift is this doc plus [`WRITEUP.md`](WRITEUP.md). The three-to-five-minute demo video plan is [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md). The eval review speaking script is [`EVAL_REVIEW_PREP.md`](EVAL_REVIEW_PREP.md).
+The Behavior Spec is [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md). The dataset is under [`data/`](data/) (`*.jsonl`) with [`cards/dataset_card.md`](cards/dataset_card.md). The model and demo are the adapters under [`outputs/qwen3-geotikz`](outputs/qwen3-geotikz), [`outputs/qwen3-pgf-geotikz`](outputs/qwen3-pgf-geotikz), [`outputs/qwen3-illustrator`](outputs/qwen3-illustrator), and [`outputs/qwen3-illustrator-4b`](outputs/qwen3-illustrator-4b), the live URL above, and [`cards/model_card.md`](cards/model_card.md). The eval harness and tables are in [`src/geotikz/harness.py`](src/geotikz/harness.py), this write-up, and [`WRITEUP.md`](WRITEUP.md). The brainlift is this doc plus [`WRITEUP.md`](WRITEUP.md). The three-to-five-minute demo video plan is [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md). The eval review speaking script is [`EVAL_REVIEW_PREP.md`](EVAL_REVIEW_PREP.md).
 
 Numbers are from committed eval JSONs and reports cited above. Reproduce commands are in [`README.md`](README.md).
