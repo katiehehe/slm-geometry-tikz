@@ -1,5 +1,5 @@
-\begin{tikzpicture}[scale=0.04, line cap=round, line join=round,
-  every node/.style={font=\footnotesize, inner sep=1pt}]
+\begin{tikzpicture}[scale=0.036, line cap=round, line join=round,
+  every node/.style={font=\scriptsize, inner sep=0.5pt}]
   \coordinate (P) at (0,0);
   \coordinate (Q) at (0,90);
   \coordinate (R) at (120,0);
@@ -12,49 +12,48 @@
   \coordinate (C2) at (75,15);
   \coordinate (C3) at (10,70);
 
-  % Triangle
   \draw[thick] (P) -- (Q) -- (R) -- cycle;
-
-  % Side lengths — kept clear of point labels S / U / T
-  \node[left] at (-6,40) {$90$};
-  \node[below] at (95,-8) {$120$};
-  \node[above right] at (100,32) {$150$};
-
-  % Construction segments
   \draw[blue!70!black, very thick] (S) -- (T);
   \draw[blue!70!black, very thick] (U) -- (V);
 
-  % Circles (keep the color scheme)
   \draw[green!55!black, thick] (C1) circle (30);
   \draw[orange!85!black, thick] (C2) circle (15);
   \draw[purple!80!black, thick] (C3) circle (10);
+  \draw[dashed, gray!65!black] (C3) -- (C2);
 
-  % Distance between C2 and C3 centers — open interior, clear of sides
-  \draw[dashed, gray!70!black] (C3) -- (C2);
-  \node[gray!70!black] at (45,48) {$\sqrt{10n}$};
+  \draw (0,5) -- (5,5) -- (5,0);
+  \draw (60,0) -- (60,5) -- (65,5) -- (65,0);
+  \draw (0,65) -- (5,65) -- (5,60);
 
-  % Right-angle marks
-  \draw (0,6) -- (6,6) -- (6,0);
-  \draw (60,0) -- (60,6) -- (66,6) -- (66,0);
-  \draw (0,66) -- (6,66) -- (6,60);
-
-  % Points
   \foreach \X in {P,Q,R,S,T,U,V,C1,C2,C3}
-    \fill (\X) circle (1.4);
+    \fill (\X) circle (1.25);
 
-  % Vertex / construction-point labels (one each, no O1/O2/O3 aliases)
-  \node[below left] at (P) {$P$};
-  \node[above left] at (Q) {$Q$};
-  \node[below right] at (R) {$R$};
-  \node[below left] at (S) {$S$};
-  \node[above right] at (T) {$T$};
-  \node[left] at (U) {$U$};
-  \node[above left] at (V) {$V$};
+  % Side lengths — outside
+  \node at (-16,45) {$90$};
+  \node at (30,-20) {$120$};
+  \node at (138,20) {$150$};
 
-  % Circle names — offset from centers so they don't sit on the dots
-  \node[green!55!black] at (42,22) {$C_1$};
-  \node[orange!85!black] at (96,18) {$C_2$};
-  \node[purple!80!black] at (24,78) {$C_3$};
+  % Vertices — outside
+  \node at (-12,-12) {$P$};
+  \node at (-12,102) {$Q$};
+  \node at (134,-12) {$R$};
 
-  \node[anchor=west] at (78,84) {$n=725$};
+  % U / S — outside
+  \node at (-16,60) {$U$};
+  \node at (60,-20) {$S$};
+
+  % V / T — callouts OUTSIDE the hypotenuse (leader + label)
+  \draw[thin, gray!55] (V) -- (22,98);
+  \node at (22,104) {$V$};
+  \draw[thin, gray!55] (T) -- (92,72);
+  \node at (98,76) {$T$};
+
+  % Circle names — C2 deep below the base
+  \node[green!55!black] at (30,14) {$C_1$};
+  \node[orange!85!black] at (95,-28) {$C_2$};
+  \node[purple!80!black] at (-18,84) {$C_3$};
+
+  % Distance answer — right margin only (never on geometry)
+  \node[anchor=west, gray!70!black] at (150,48) {$\mathrm{dist}(C_2,C_3)=\sqrt{10n}$};
+  \node[anchor=west] at (150,34) {$n=725$};
 \end{tikzpicture}
