@@ -17,8 +17,8 @@
 
   % Side lengths — kept clear of point labels S / U / T
   \node[left] at (-6,40) {$90$};
-  \node[below] at (95,-8) {$120$};
-  \node[above right] at (78,48) {$150$};
+  \node[below] at (75,-8) {$120$};
+  \node[above right] at (70,54) {$150$};
 
   % Construction segments
   \draw[blue!70!black, very thick] (S) -- (T);
@@ -29,9 +29,9 @@
   \draw[orange!85!black, thick] (C2) circle (15);
   \draw[purple!80!black, thick] (C3) circle (10);
 
-  % Distance between C2 and C3 centers — below the chord, clear of V
+  % Distance between C2 and C3 centers — nudged left of the clutter
   \draw[dashed, gray!70!black] (C3) -- (C2);
-  \node[gray!70!black] at (52,42) {$\sqrt{10n}$};
+  \node[gray!70!black] at (42,40) {$\sqrt{10n}$};
 
   % Right-angle marks
   \draw (0,6) -- (6,6) -- (6,0);
@@ -42,18 +42,18 @@
   \foreach \X in {P,Q,R,S,T,U,V,C1,C2,C3}
     \fill (\X) circle (1.4);
 
-  % Vertex / construction-point labels (one each, no O1/O2/O3 aliases)
+  % Vertex / construction-point labels
   \node[below left] at (P) {$P$};
   \node[above left] at (Q) {$Q$};
   \node[below right] at (R) {$R$};
   \node[below left] at (S) {$S$};
   \node[above right] at (T) {$T$};
   \node[left] at (U) {$U$};
-  \node[above left] at (V) {$V$};
+  \node at (48,70) {$V$};
 
-  % Circle names only
-  \node[green!55!black] at (30,30) {$C_1$};
-  \node[orange!85!black] at (96,18) {$C_2$};
+  % Circle names — small nudges only
+  \node[green!55!black] at (22,30) {$C_1$};
+  \node[orange!85!black] at (82,6) {$C_2$};
   \node[purple!80!black] at (24,78) {$C_3$};
 
   \node[anchor=west] at (78,84) {$n=725$};
