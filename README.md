@@ -13,7 +13,6 @@ them.
 **Start here:**
 
 - [`DEMO_WRITEUP.md`](DEMO_WRITEUP.md): canonical demo write-up (pitch, eval, results, product, terms, Q&A).
-- [`WRITEUP.md`](WRITEUP.md): the full evidence-first narrative (the brainlift).
 - [`BEHAVIOR_SPEC.md`](BEHAVIOR_SPEC.md): the one-sentence falsifiable gate.
 - [`cards/`](cards/): Hugging Face model + dataset cards.
 
@@ -147,7 +146,7 @@ Model inference of base+LoRA thrashes on an 8 GB Mac, so predictions are generat
 Full-model re-run from scratch (needs a GPU): generate preds with
 `modal run scripts/train_modal.py::eval_infer`, download with `modal volume get`, then
 `score_preds.py`. The per-claim → artifact map is also in
-[`WRITEUP.md`](WRITEUP.md#appendix--reproduce-the-numbers).
+[`DEMO_WRITEUP.md`](DEMO_WRITEUP.md) and [`README.md`](README.md#reproduce-every-result).
 
 ---
 
@@ -187,10 +186,14 @@ Cards are ready (`cards/model_card.md`, `cards/dataset_card.md`). Publishing nee
 **write token**. The script is dry-run by default:
 
 ```bash
-uv run python scripts/publish_hf.py --user YOURNAME              # preview the plan
+uv run python scripts/publish_hf.py --user katiehehe              # preview the plan
 export HF_TOKEN=hf_...                                           # WRITE token
-uv run python scripts/publish_hf.py --user YOURNAME --push       # create repos + upload
+uv run python scripts/publish_hf.py --user katiehehe --push       # create repos + upload
 ```
+
+That publishes:
+- dataset: `katiehehe/spec-first-geometry-tikz`
+- model: `katiehehe/qwen3-geotikz` (LoRA adapters as subfolders, including `qwen3-illustrator-4b-v2`)
 
 ## Layout
 

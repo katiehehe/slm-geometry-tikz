@@ -30,7 +30,7 @@ The **synthetic gate** requires figure-only TikZ that compiles under tectonic, w
 
 **PGF utility** is a 280-item PGF construction eval in [`outputs/eval_pgf_tuned.json`](outputs/eval_pgf_tuned.json), plus a thirty-example in-domain utility check versus gpt-5.5 and Opus 4.8 in [`outputs/utility_report.md`](outputs/utility_report.md).
 
-**AIME faithfulness** separates compile from correct. Compile is not the same as faithful: a figure can compile and look geometric while still misrepresenting the problem. A vision judge checks whether the drawn construction matches the intended problem scene. Those results are in [`ILLUSTRATOR_REPORT.md`](ILLUSTRATOR_REPORT.md), [`ILLUSTRATOR_4B_REPORT.md`](ILLUSTRATOR_4B_REPORT.md), and [`ILLUSTRATOR_4B_V2_REPORT.md`](ILLUSTRATOR_4B_V2_REPORT.md).
+**AIME faithfulness** separates compile from correct. Compile is not the same as faithful: a figure can compile and look geometric while still misrepresenting the problem. A vision judge checks whether the drawn construction matches the intended problem scene. Those results live under `outputs/aime_gallery_illustrator*`, `outputs/syn_eval_illustrator*`, and the AIME section of the live copilot’s Info → Evals tab.
 
 The twelve-model pass heatmap below shows how hard the numeric grid still is even for frontier models.
 

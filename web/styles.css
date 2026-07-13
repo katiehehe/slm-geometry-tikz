@@ -32,11 +32,14 @@ body {
 .app {
   max-width: 1280px;
   margin: 0 auto;
+  height: 100%;
   min-height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   padding: 16px 16px 20px;
   gap: 12px;
+  overflow: hidden;
 }
 
 .topbar {
@@ -45,6 +48,8 @@ body {
   justify-content: space-between;
   gap: 12px;
   padding: 4px 4px 8px;
+  position: relative;
+  z-index: 1;
 }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand-mark {
@@ -133,6 +138,43 @@ body {
   border-bottom-left-radius: 5px;
 }
 .msg.assistant.thinking { color: var(--muted); font-style: italic; }
+.msg.has-media {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(92%, 320px);
+  padding: 8px;
+}
+.msg.user.has-media {
+  background: var(--ink);
+  max-width: min(92%, 300px);
+  width: fit-content;
+}
+.msg-media {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  line-height: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+.msg.user .msg-media {
+  background: #fff;
+}
+.msg-thumb {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 280px);
+  max-height: 160px;
+  object-fit: contain;
+  background: #fff;
+}
+.msg-text {
+  padding: 2px 6px 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .msg .attr {
   display: block;
   margin-top: 6px;
@@ -161,6 +203,13 @@ body {
   border-top: 1px solid var(--line);
   padding: 12px;
   background: rgba(255,255,255,0.55);
+  position: relative;
+}
+.composer.drag-over,
+.chat-pane.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  background: var(--accent-soft);
 }
 .composer-row {
   display: flex;
@@ -324,7 +373,7 @@ body {
 
 .figure-stage {
   flex: 1;
-  min-height: 280px;
+  min-height: 0;
   display: grid;
   place-items: center;
   background:
@@ -338,7 +387,7 @@ body {
 }
 .figure-stage img {
   max-width: 100%;
-  max-height: min(520px, 70vh);
+  max-height: 100%;
   object-fit: contain;
   animation: fadein 0.35s ease;
 }
@@ -353,26 +402,48 @@ body {
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
-.board-toolbar .hint { font-size: 0.78rem; color: var(--muted); }
+.board-toolbar .hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .board-host {
   flex: 1;
-  min-height: 360px;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
   background: #fff;
+  display: flex;
+  flex-direction: column;
 }
-.board-host iframe { width: 100%; height: 100%; min-height: 420px; border: 0; }
+.board-host iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+}
 
 .tikz-code {
   flex: 1;
-  min-height: 280px;
-  resize: vertical;
+  min-height: 0;
+  resize: none;
+}
+#panel-tikz .secondary {
+  flex-shrink: 0;
+  margin-top: 8px;
+  align-self: flex-start;
 }
 
-/* Scrollable report tabs (Evals / Data) */
+/* Scrollable report panels (Evals / Data) */
 .report-scroll {
   flex: 1;
   min-height: 0;
@@ -400,7 +471,6 @@ body {
   font-size: 0.88rem;
   line-height: 1.45;
   color: var(--ink-soft);
-  max-width: 62ch;
 }
 .report-section {
   margin: 0 0 22px;
@@ -419,7 +489,6 @@ body {
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--muted);
-  max-width: 68ch;
 }
 .report-pipeline {
   margin: 0 0 12px;
@@ -473,6 +542,79 @@ body {
   color: var(--muted);
   line-height: 1.35;
 }
+
+/* Equal-width 3-panel figure compare (Info Write-up / Evals). */
+.compare-block {
+  margin: 0 0 16px;
+  width: 100%;
+}
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+.compare-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.compare-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  color: #fff;
+  min-height: 3.1rem;
+  justify-content: center;
+}
+.compare-title {
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+.compare-note {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  opacity: 0.92;
+  font-family: var(--mono);
+  font-weight: 450;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.compare-card.tone-gt .compare-head { background: #3b5bdb; }
+.compare-card.tone-fail .compare-head { background: #c92a2a; }
+.compare-card.tone-pass .compare-head { background: #2b8a3e; }
+.compare-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+.compare-caption {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+@media (max-width: 720px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .compare-head {
+    min-height: 0;
+  }
+}
 .report-table-wrap {
   overflow-x: auto;
   margin: 0 0 8px;
@@ -515,9 +657,16 @@ body {
 }
 .report-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
   margin-top: 4px;
+  width: 100%;
+}
+.gallery-heading {
+  margin: 1.1rem 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 .report-gallery figure {
   margin: 0;
@@ -537,8 +686,8 @@ body {
     #fff;
 }
 .report-gallery figcaption {
-  padding: 4px 6px 6px;
-  font-size: 0.68rem;
+  padding: 6px 8px 8px;
+  font-size: 0.72rem;
   font-family: var(--mono);
   color: var(--muted);
   text-align: center;
@@ -554,7 +703,6 @@ body {
   font-size: 0.86rem;
   line-height: 1.45;
   color: var(--ink-soft);
-  max-width: 72ch;
 }
 .report-anchor {
   color: var(--accent-deep);
@@ -574,10 +722,12 @@ body {
   .report-scroll { scroll-behavior: auto; }
 }
 
+/* Overlays live outside .app: use a high root z-index so they aren't
+   trapped under an ancestor stacking context (old bug: backdrop covered topbar). */
 .menu-backdrop {
   position: fixed; inset: 0;
   background: rgba(20,32,28,0.28);
-  z-index: 40;
+  z-index: 200;
   animation: fadein 0.18s ease;
 }
 .menu.panel {
@@ -590,11 +740,218 @@ body {
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 24px 60px rgba(20,32,28,0.18);
-  z-index: 50;
+  z-index: 210;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   animation: rise 0.22s ease;
+}
+.menu.panel.report-menu {
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(84vh, 820px);
+  left: max(12px, calc(50% - 380px));
+  right: auto;
+}
+/* Info: edge-to-edge fullscreen overlay; content scrolls inside. */
+.menu.panel.info-menu {
+  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  z-index: 220;
+}
+.menu.panel.report-menu .report-scroll {
+  padding: 12px 16px 28px;
+}
+.menu.panel.info-menu .report-scroll {
+  padding: 16px 32px 36px;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.menu.panel.info-menu .writeup-nav,
+.menu.panel.info-menu .info-subnav {
+  padding-left: 32px;
+  padding-right: 32px;
+}
+.menu.panel.info-menu .report-hero p,
+.menu.panel.info-menu .report-section .caption,
+.menu.panel.info-menu .report-bullets li,
+.menu.panel.info-menu .writeup-prose {
+  max-width: none;
+}
+.menu.panel.info-menu .report-figure,
+.menu.panel.info-menu .report-table-wrap,
+.menu.panel.info-menu .report-gallery,
+.menu.panel.info-menu .compare-block {
+  width: 100%;
+  max-width: none;
+}
+
+/* Info: keep a single figure fully on-screen (laptop viewport). */
+.menu.panel.info-menu .report-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.menu.panel.info-menu .report-figure img {
+  width: auto;
+  max-width: min(100%, 960px);
+  max-height: min(50vh, 420px);
+  height: auto;
+  object-fit: contain;
+}
+/* Demo: heatmaps / grid charts need more vertical room than compare panels. */
+.menu.panel.info-menu .report-figure--heatmap img,
+.menu.panel.info-menu .report-figure img[src*="heatmap"],
+.menu.panel.info-menu .report-figure img[src*="op_effect"],
+.menu.panel.info-menu .report-figure img[src*="family_passrate"] {
+  max-width: min(100%, 1200px);
+  max-height: min(70vh, 640px);
+}
+.menu.panel.info-menu .compare-block {
+  max-width: min(920px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+.menu.panel.info-menu .compare-card img {
+  width: 100%;
+  height: min(48vh, 320px);
+  max-height: min(48vh, 320px);
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+/* Info: AIME gallery spans full content width; 2-4 equal cards/row. */
+.menu.panel.info-menu .report-gallery {
+  width: 100%;
+  max-width: none;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
+}
+.menu.panel.info-menu .report-gallery img {
+  width: 100%;
+  max-height: none;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+}
+.info-subnav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  flex-shrink: 0;
+}
+.info-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 550;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.info-tab:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.info-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: rgba(13, 122, 95, 0.28);
+}
+.info-panels {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.info-panel {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+}
+.info-panel.active {
+  display: flex;
+}
+.info-panel .report-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.writeup-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-2);
+  flex-shrink: 0;
+}
+.writeup-nav a {
+  font-size: 0.78rem;
+  font-weight: 550;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  line-height: 1.25;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.writeup-nav a:hover {
+  background: #fff;
+  color: var(--accent-deep);
+  border-color: var(--line);
+}
+.writeup-nav a.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: rgba(13, 122, 95, 0.28);
+}
+.writeup-section {
+  scroll-margin-top: 8px;
+}
+.writeup-section h3 {
+  font-family: var(--display);
+  font-size: 1.08rem;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  padding-top: 4px;
+}
+.writeup-prose {
+  margin: 0 0 12px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-width: none;
+  text-wrap: pretty;
+}
+.writeup-prose code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  background: var(--paper-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.writeup-section .report-table-wrap {
+  margin: 4px 0 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .writeup-nav a { transition: none; }
 }
 .menu header {
   display: flex;
@@ -659,4 +1016,10 @@ body {
   .brand-text p { display: none; }
   .topbar-actions .ghost { padding: 7px 10px; font-size: 0.8rem; }
   .menu.panel { right: 12px; left: 12px; width: auto; }
+  .menu.panel.report-menu { left: 12px; right: 12px; width: auto; }
+  .menu.panel.info-menu {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
 }

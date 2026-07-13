@@ -1,4 +1,4 @@
-/* Geometry Figure Copilot — chat-first SPA */
+/* Geometry Figure Copilot: chat-first SPA */
 
 const state = {
   currentTikz: "",
@@ -33,7 +33,7 @@ async function api(path, opts = {}) {
     headers: { ...(opts.headers || {}), ...authHeaders() },
   });
   if (res.status === 401) {
-    throw new Error("Not authenticated — refresh and sign in.");
+    throw new Error("Not authenticated. Refresh and sign in.");
   }
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -53,22 +53,54 @@ function showEmptyChat() {
     <div class="empty-chat">
       <strong>Draw a geometry figure</strong>
       Describe a scene, attach a screenshot or PDF, or paste TikZ.
+      Paste (⌘/Ctrl+V) or drag-and-drop images into chat.
       Then edit by chat or drag points on the Interactive tab.
     </div>`;
 }
 
-function appendMsg(role, text, { thinking = false } = {}) {
+function appendMsg(role, text, { thinking = false, imageUrl = null, imageFile = null } = {}) {
   const empty = chatEl.querySelector(".empty-chat");
   if (empty) empty.remove();
   const div = document.createElement("div");
   div.className = `msg ${role}` + (thinking ? " thinking" : "");
-  div.textContent = text;
+
+  let previewUrl = imageUrl;
+  let revokeOnLoad = false;
+  if (!previewUrl && imageFile && isImageFile(imageFile)) {
+    previewUrl = URL.createObjectURL(imageFile);
+    revokeOnLoad = true;
+  }
+
+  if (previewUrl) {
+    div.classList.add("has-media");
+    const media = document.createElement("div");
+    media.className = "msg-media";
+    const img = document.createElement("img");
+    img.src = previewUrl;
+    img.alt = (imageFile && imageFile.name) || "Attached screenshot";
+    img.className = "msg-thumb";
+    if (revokeOnLoad) {
+      img.addEventListener("load", () => URL.revokeObjectURL(previewUrl), { once: true });
+      img.addEventListener("error", () => URL.revokeObjectURL(previewUrl), { once: true });
+    }
+    media.appendChild(img);
+    div.appendChild(media);
+  }
+
+  if (text) {
+    const body = document.createElement("div");
+    body.className = "msg-text";
+    body.textContent = text;
+    div.appendChild(body);
+  }
+
   chatEl.appendChild(div);
   chatEl.scrollTop = chatEl.scrollHeight;
   return div;
 }
 
 function finishThinking(content) {
+  stopDrawTimer();
   const last = chatEl.querySelector(".msg.assistant.thinking:last-of-type");
   if (last) {
     last.classList.remove("thinking");
@@ -77,6 +109,31 @@ function finishThinking(content) {
     appendMsg("assistant", content);
   }
   chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+let drawTimerId = null;
+
+function stopDrawTimer() {
+  if (drawTimerId != null) {
+    clearInterval(drawTimerId);
+    drawTimerId = null;
+  }
+}
+
+function startDrawTimer(prefix = "✏️ …drawing…") {
+  stopDrawTimer();
+  const t0 = Date.now();
+  const paint = () => {
+    const last = chatEl.querySelector(".msg.assistant.thinking:last-of-type");
+    if (!last) return;
+    const s = Math.floor((Date.now() - t0) / 1000);
+    const text = `${prefix} ${s}s`;
+    const body = last.querySelector(".msg-text");
+    if (body) body.textContent = text;
+    else last.textContent = text;
+  };
+  paint();
+  drawTimerId = setInterval(paint, 1000);
 }
 
 function setBadge(text) {
@@ -95,6 +152,8 @@ function setFigure(pngUrl) {
   const img = document.createElement("img");
   img.src = pngUrl;
   img.alt = "Generated geometry figure";
+  img.decoding = "async";
+  img.loading = "eager";
   figureStage.appendChild(img);
 }
 
@@ -154,14 +213,17 @@ async function sendMessage({ text = null, file = null, userLabel = null } = {}) 
   if (!message && !attachment) return;
 
   let userTurn = message;
+  const isPdf = attachment && /\.pdf$/i.test(attachment.name || "");
   if (attachment) {
-    const isPdf = /\.pdf$/i.test(attachment.name || "");
-    userTurn = (isPdf ? "📄 (PDF upload)" : "🖼️ (screenshot)") + (message ? ` — ${message}` : "");
+    userTurn = (isPdf ? "📄 (PDF upload)" : "🖼️ (screenshot)") + (message ? `: ${message}` : "");
   }
   if (userLabel) userTurn = userLabel;
 
-  appendMsg("user", userTurn);
+  appendMsg("user", userTurn, {
+    imageFile: attachment && !isPdf ? attachment : null,
+  });
   appendMsg("assistant", "✏️ …drawing…", { thinking: true });
+  startDrawTimer("✏️ …drawing…");
   messageEl.value = "";
   autosize();
   const heldFile = attachment;
@@ -181,8 +243,9 @@ async function sendMessage({ text = null, file = null, userLabel = null } = {}) 
     finishThinking(data.message || "Done.");
     applyResult(data);
   } catch (err) {
-    finishThinking(err.message || "Something went wrong — try again.");
+    finishThinking(err.message || "Something went wrong. Try again.");
   } finally {
+    stopDrawTimer();
     setBusy(false);
   }
 }
@@ -193,6 +256,7 @@ async function pasteTikz() {
   if (!tikz) return;
   appendMsg("user", "📋 (pasted TikZ)");
   appendMsg("assistant", "✏️ …drawing…", { thinking: true });
+  startDrawTimer("✏️ …drawing…");
   setBusy(true);
   try {
     const data = await api("/api/paste", {
@@ -206,8 +270,9 @@ async function pasteTikz() {
     finishThinking(data.message || "Done.");
     applyResult(data);
   } catch (err) {
-    finishThinking(err.message || "Something went wrong — try again.");
+    finishThinking(err.message || "Something went wrong. Try again.");
   } finally {
+    stopDrawTimer();
     setBusy(false);
   }
 }
@@ -246,6 +311,7 @@ async function applyBoard() {
   setBusy(true);
   appendMsg("user", "🖐 (apply board edits)");
   appendMsg("assistant", "✏️ …applying…", { thinking: true });
+  startDrawTimer("✏️ …applying…");
   try {
     const boardTikz = await requestBoardTikz();
     const data = await api("/api/apply-board", {
@@ -259,8 +325,9 @@ async function applyBoard() {
     finishThinking(data.message || "Done.");
     applyResult(data, { updateBoard: false });
   } catch (err) {
-    finishThinking(err.message || "Something went wrong — try again.");
+    finishThinking(err.message || "Something went wrong. Try again.");
   } finally {
+    stopDrawTimer();
     setBusy(false);
   }
 }
@@ -287,39 +354,231 @@ function renderExamples(examples) {
     const li = document.createElement("li");
     li.textContent = ex.label;
     li.dataset.index = String(i);
-    if (state.selectedExample && state.selectedExample.prompt === ex.prompt) {
+    if (state.selectedExample && state.selectedExample.prompt === ex.prompt &&
+        state.selectedExample.image_url === ex.image_url) {
       li.classList.add("selected");
     }
-    li.addEventListener("click", () => {
+    li.addEventListener("click", async () => {
       state.selectedExample = ex;
       [...list.children].forEach((c) => c.classList.remove("selected"));
       li.classList.add("selected");
       $("#btn-remove-example").disabled = !ex.saved;
       closeMenu("examples");
-      sendMessage({ text: ex.prompt });
+      if (ex.image_url) {
+        // Demo examples should use the specialist path (and AIME demo cache).
+        const spec = $("#use-specialist");
+        if (spec && !spec.disabled) spec.checked = true;
+        try {
+          const res = await fetch(ex.image_url, { credentials: "same-origin" });
+          if (!res.ok) throw new Error(`Could not load demo image (${res.status})`);
+          const blob = await res.blob();
+          const name = (ex.image_url.split("/").pop() || "aime.png").split("?")[0];
+          const file = new File([blob], name, { type: blob.type || "image/png" });
+          // Send verified prompt WITH the screenshot so routing hits the specialist
+          // on clean in-vocab text while chat still shows the problem image.
+          await sendMessage({
+            text: ex.prompt || "",
+            file,
+            userLabel: `🖼️ ${ex.label}`,
+          });
+        } catch (err) {
+          // Fall back to known in-vocab text so the specialist path still demos.
+          await sendMessage({ text: ex.prompt || "", userLabel: ex.label });
+          appendMsg("assistant", err.message || "Demo image failed; sent the text prompt instead.");
+        }
+      } else {
+        sendMessage({ text: ex.prompt });
+      }
     });
     list.appendChild(li);
   });
 }
 
-function openMenu(which) {
-  $(`#${which}-backdrop`).classList.remove("hidden");
-  $(`#${which}-menu`).classList.remove("hidden");
+function isImageFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "");
 }
+
+function wirePasteAndDrop() {
+  const composer = document.querySelector(".composer") || document.body;
+  const chatPane = document.querySelector(".chat-pane") || chatEl;
+
+  document.addEventListener("paste", (e) => {
+    if (state.busy) return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type && item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        const named = new File(
+          [file],
+          file.name || `pasted-${Date.now()}.png`,
+          { type: file.type || "image/png" }
+        );
+        setAttachment(named);
+        // Auto-send pasted screenshots so Cmd/Ctrl+V feels like “drop into chat”.
+        sendMessage({ file: named, text: messageEl.value || "" });
+        return;
+      }
+    }
+  });
+
+  const onDragOver = (e) => {
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    composer.classList.add("drag-over");
+    chatPane.classList.add("drag-over");
+  };
+  const onDragLeave = (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    composer.classList.remove("drag-over");
+    chatPane.classList.remove("drag-over");
+  };
+  const onDrop = (e) => {
+    composer.classList.remove("drag-over");
+    chatPane.classList.remove("drag-over");
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    e.preventDefault();
+    if (state.busy) return;
+    const file = files[0];
+    const ok =
+      isImageFile(file) ||
+      /\.pdf$/i.test(file.name || "") ||
+      file.type === "application/pdf";
+    if (!ok) {
+      appendMsg("assistant", "Drop a PNG/JPG/WebP image or a PDF.");
+      return;
+    }
+    setAttachment(file);
+    sendMessage({ file, text: messageEl.value || "" });
+  };
+
+  [composer, chatPane].forEach((el) => {
+    el.addEventListener("dragover", onDragOver);
+    el.addEventListener("dragleave", onDragLeave);
+    el.addEventListener("drop", onDrop);
+  });
+}
+
+const MENU_NAMES = ["examples", "settings", "info"];
+
+function openMenu(which) {
+  MENU_NAMES.forEach((name) => {
+    if (name !== which) closeMenu(name);
+  });
+  const backdrop = $(`#${which}-backdrop`);
+  const menu = $(`#${which}-menu`);
+  if (backdrop) backdrop.classList.remove("hidden");
+  if (menu) menu.classList.remove("hidden");
+  document.body.classList.add("menu-open");
+}
+
 function closeMenu(which) {
-  $(`#${which}-backdrop`).classList.add("hidden");
-  $(`#${which}-menu`).classList.add("hidden");
+  const backdrop = $(`#${which}-backdrop`);
+  const menu = $(`#${which}-menu`);
+  if (backdrop) backdrop.classList.add("hidden");
+  if (menu) menu.classList.add("hidden");
+  const anyOpen = MENU_NAMES.some((name) => {
+    const m = $(`#${name}-menu`);
+    return m && !m.classList.contains("hidden");
+  });
+  if (!anyOpen) document.body.classList.remove("menu-open");
+}
+
+function showInfoTab(name) {
+  document.querySelectorAll(".info-tab").forEach((tab) => {
+    const on = tab.dataset.infoTab === name;
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".info-panel").forEach((panel) => {
+    const on = panel.id === `info-panel-${name}`;
+    panel.classList.toggle("active", on);
+    panel.hidden = !on;
+  });
+}
+
+function setupWriteupNav() {
+  const nav = document.querySelector(".writeup-nav");
+  const scroll = $("#writeup-root");
+  if (!nav || !scroll) return;
+  nav.addEventListener("click", (e) => {
+    const link = e.target.closest("a[href^='#']");
+    if (!link) return;
+    e.preventDefault();
+    const id = link.getAttribute("href").slice(1);
+    const target = document.getElementById(id);
+    if (!target) return;
+    const delta =
+      target.getBoundingClientRect().top -
+      scroll.getBoundingClientRect().top +
+      scroll.scrollTop -
+      8;
+    scroll.scrollTo({ top: Math.max(0, delta), behavior: "smooth" });
+    nav.querySelectorAll("a").forEach((a) => {
+      a.classList.toggle("active", a === link);
+    });
+  });
+}
+
+function setupMenus() {
+  const bind = (sel, fn) => {
+    const el = $(sel);
+    if (el) el.addEventListener("click", fn);
+  };
+
+  // Immediate, sync handlers: never gated on /api/config.
+  bind("#btn-examples", () => openMenu("examples"));
+  bind("#btn-info", () => {
+    openMenu("info");
+    showInfoTab("writeup");
+    const scroll = $("#writeup-root");
+    if (scroll) scroll.scrollTop = 0;
+  });
+  bind("#btn-settings", () => openMenu("settings"));
+  bind("#btn-examples-close", () => closeMenu("examples"));
+  bind("#btn-info-close", () => closeMenu("info"));
+  bind("#btn-settings-close", () => closeMenu("settings"));
+  bind("#examples-backdrop", () => closeMenu("examples"));
+  bind("#info-backdrop", () => closeMenu("info"));
+  bind("#settings-backdrop", () => closeMenu("settings"));
+
+  document.querySelectorAll(".info-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const name = tab.dataset.infoTab;
+      if (name) showInfoTab(name);
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const name of MENU_NAMES) {
+      const menu = $(`#${name}-menu`);
+      if (menu && !menu.classList.contains("hidden")) {
+        closeMenu(name);
+        e.preventDefault();
+        break;
+      }
+    }
+  });
+  setupWriteupNav();
 }
 
 function setupTabs() {
-  document.querySelectorAll(".tab").forEach((tab) => {
+  // Scope to figure pane only. Info uses .info-tab, not .tab.
+  document.querySelectorAll(".figure-pane .tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       const name = tab.dataset.tab;
-      document.querySelectorAll(".tab").forEach((t) => {
+      document.querySelectorAll(".figure-pane .tab").forEach((t) => {
         t.classList.toggle("active", t === tab);
         t.setAttribute("aria-selected", t === tab ? "true" : "false");
       });
-      document.querySelectorAll(".tab-panel").forEach((p) => {
+      document.querySelectorAll(".figure-pane .tab-panel").forEach((p) => {
         const on = p.id === `panel-${name}`;
         p.classList.toggle("active", on);
         p.hidden = !on;
@@ -355,15 +614,51 @@ function reportTable(headers, rows) {
   return `<div class="report-table-wrap"><table class="report-table">${thead}<tbody>${body}</tbody></table></div>`;
 }
 
+function reportCompare(base, img) {
+  const panels = (img.panels || [])
+    .map((p) => {
+      const tone = p.tone ? ` tone-${esc(p.tone)}` : "";
+      const note = p.note
+        ? `<span class="compare-note">${esc(p.note)}</span>`
+        : "";
+      return `
+        <figure class="compare-card${tone}">
+          <header class="compare-head">
+            <span class="compare-title">${esc(p.title || "")}</span>
+            ${note}
+          </header>
+          <img src="${esc(base + p.src)}" alt="${esc(p.alt || p.title || "")}" loading="lazy" />
+        </figure>`;
+    })
+    .join("");
+  const caption = img.caption
+    ? `<p class="compare-caption">${esc(img.caption)}</p>`
+    : "";
+  return `
+    <div class="compare-block" role="group" aria-label="${esc(img.alt || img.caption || "Comparison")}">
+      <div class="compare-grid">${panels}</div>
+      ${caption}
+    </div>`;
+}
+
+function isHeatmapSrc(src) {
+  const s = String(src || "").toLowerCase();
+  return /heatmap|op_effect|family_passrate/.test(s);
+}
+
 function reportFigures(base, images) {
   return (images || [])
-    .map(
-      (img) => `
-      <figure class="report-figure">
+    .map((img) => {
+      if (img.layout === "compare" && Array.isArray(img.panels)) {
+        return reportCompare(base, img);
+      }
+      const heat = isHeatmapSrc(img.src) ? " report-figure--heatmap" : "";
+      return `
+      <figure class="report-figure${heat}">
         <img src="${esc(base + img.src)}" alt="${esc(img.alt || "")}" loading="lazy" />
         ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ""}
-      </figure>`
-    )
+      </figure>`;
+    })
     .join("");
 }
 
@@ -485,11 +780,17 @@ function renderEvals(data) {
         </figure>`
       )
       .join("");
+    const galleryHeading = s.aime.gallery_heading || "Gallery";
+    const galleryCaption = s.aime.gallery_caption
+      ? `<p class="caption">${esc(s.aime.gallery_caption)}</p>`
+      : "";
     html += `
       <section class="report-section">
         <h3>${esc(s.aime.heading)}</h3>
         <p class="caption">${esc(s.aime.caption)}</p>
         ${reportTable(["System", "Compile", "Faithful"], rows)}
+        <h4 class="gallery-heading">${esc(galleryHeading)}</h4>
+        ${galleryCaption}
         <div class="report-gallery">${gallery}</div>
       </section>`;
   }
@@ -516,9 +817,9 @@ function renderData(data) {
   const nv = (data.numeric_vs_pgf || []).map((r) => [
     r.target,
     { text: String(r.rows), className: "num" },
-    { text: r.irregular_pct != null ? `${r.irregular_pct}%` : "—", className: "num" },
+    { text: r.irregular_pct != null ? `${r.irregular_pct}%` : "-", className: "num" },
     {
-      text: r.chain_4_5_pct != null ? `${r.chain_4_5_pct}%` : "—",
+      text: r.chain_4_5_pct != null ? `${r.chain_4_5_pct}%` : "-",
       className: "num",
     },
   ]);
@@ -552,14 +853,14 @@ function renderData(data) {
     </section>
     <section class="report-section">
       <h3>Numeric vs PGF difficulty mix</h3>
-      <p class="caption">Irregular-number share and chain 4–5 concentration where applicable.</p>
-      ${reportTable(["Target", "Rows", "Irregular %", "Chain 4–5 %"], nv)}
+      <p class="caption">Irregular-number share and chain 4-5 concentration where applicable.</p>
+      ${reportTable(["Target", "Rows", "Irregular %", "Chain 4-5 %"], nv)}
     </section>
     ${reportFigures(DATA, data.images)}
-    ${tagBlock("v1 numeric train — tag occurrences", "train_numeric")}
-    ${tagBlock("v2 PGF train — tag occurrences", "train_pgf")}
-    ${tagBlock("Olympiad eval — named constructions", "olympiad")}
-    ${tagBlock("Illustrator syn eval v2 — families", "illustrator_syn_v2")}
+    ${tagBlock("v1 numeric train: tag occurrences", "train_numeric")}
+    ${tagBlock("v2 PGF train: tag occurrences", "train_pgf")}
+    ${tagBlock("Olympiad eval: named constructions", "olympiad")}
+    ${tagBlock("Illustrator syn eval v2: families", "illustrator_syn_v2")}
   `;
   root.removeAttribute("aria-busy");
 }
@@ -596,31 +897,9 @@ async function loadReportTabs() {
 async function init() {
   showEmptyChat();
   setupTabs();
+  setupMenus(); // before /api/config: top nav must work during cold start
   setBoard(null);
   loadReportTabs();
-
-  try {
-    const cfg = await api("/api/config");
-    state.emptyBoardHtml = cfg.empty_board_html || "";
-    setBoard(null);
-    $("#specialist-label").textContent = cfg.specialist_toggle_label || "Use specialist first";
-    $("#use-specialist").checked = !!cfg.specialist_default;
-    if (!cfg.specialist_available) {
-      $("#specialist-field").classList.add("hidden");
-    }
-    const sel = $("#frontier-model");
-    sel.innerHTML = "";
-    (cfg.frontier_models || []).forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m;
-      opt.textContent = m;
-      if (m === cfg.default_frontier_model) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    renderExamples(cfg.examples || []);
-  } catch (err) {
-    appendMsg("assistant", `Could not load config: ${err.message}`);
-  }
 
   sendBtn.addEventListener("click", () => sendMessage());
   messageEl.addEventListener("keydown", (e) => {
@@ -630,6 +909,7 @@ async function init() {
     }
   });
   messageEl.addEventListener("input", autosize);
+  autosize();
 
   $("#btn-attach").addEventListener("click", () => $("#file-input").click());
   $("#file-input").addEventListener("change", (e) => {
@@ -637,6 +917,8 @@ async function init() {
     setAttachment(f || null);
   });
   $("#btn-clear-attach").addEventListener("click", clearAttachment);
+
+  wirePasteAndDrop();
 
   $("#btn-paste-toggle").addEventListener("click", () => {
     $("#paste-panel").classList.toggle("hidden");
@@ -652,13 +934,6 @@ async function init() {
       setTimeout(() => { $("#btn-copy-tikz").textContent = "Copy TikZ"; }, 1200);
     } catch (_) { /* ignore */ }
   });
-
-  $("#btn-examples").addEventListener("click", () => openMenu("examples"));
-  $("#btn-settings").addEventListener("click", () => openMenu("settings"));
-  $("#btn-examples-close").addEventListener("click", () => closeMenu("examples"));
-  $("#btn-settings-close").addEventListener("click", () => closeMenu("settings"));
-  $("#examples-backdrop").addEventListener("click", () => closeMenu("examples"));
-  $("#settings-backdrop").addEventListener("click", () => closeMenu("settings"));
 
   $("#btn-save-example").addEventListener("click", async () => {
     const prompt = messageEl.value.trim() || state.selectedExample?.prompt || "";
@@ -709,10 +984,33 @@ async function init() {
     }
   });
 
-  // Board iframe "Apply" button posts to parent — mirror Gradio bridge.
+  // Board iframe "Apply" button posts to parent (mirror Gradio bridge).
   window.addEventListener("message", (e) => {
     if (e.data && e.data.type === "geotikz-click-apply") applyBoard();
   });
+
+  try {
+    const cfg = await api("/api/config");
+    state.emptyBoardHtml = cfg.empty_board_html || "";
+    setBoard(null);
+    $("#specialist-label").textContent = cfg.specialist_toggle_label || "Use specialist first";
+    $("#use-specialist").checked = !!cfg.specialist_default;
+    if (!cfg.specialist_available) {
+      $("#specialist-field").classList.add("hidden");
+    }
+    const sel = $("#frontier-model");
+    sel.innerHTML = "";
+    (cfg.frontier_models || []).forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      if (m === cfg.default_frontier_model) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    renderExamples(cfg.examples || []);
+  } catch (err) {
+    appendMsg("assistant", `Could not load config: ${err.message}`);
+  }
 }
 
 init();

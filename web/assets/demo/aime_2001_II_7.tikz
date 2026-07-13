@@ -1,0 +1,56 @@
+\begin{tikzpicture}[scale=0.04, line cap=round, line join=round, every node/.style={font=\small}]
+  \coordinate (P) at (0,0);
+  \coordinate (Q) at (0,90);
+  \coordinate (R) at (120,0);
+
+  \coordinate (C1) at (30,30);
+
+  \coordinate (S) at (60,0);
+  \coordinate (T) at (60,45);
+
+  \coordinate (U) at (0,60);
+  \coordinate (V) at (40,60);
+
+  \coordinate (C2) at (75,15);
+  \coordinate (C3) at (10,70);
+
+  \coordinate (O1) at (C1);
+  \coordinate (O2) at (C2);
+  \coordinate (O3) at (C3);
+
+  \draw[thick] (P) -- node[left] {$90$} (Q) -- node[above right] {$150$} (R) -- node[below] {$120$} cycle;
+
+  \draw[blue!70!black, very thick] (S) -- (T);
+  \draw[blue!70!black, very thick] (U) -- (V);
+
+  \draw[green!55!black, thick] (C1) circle (30);
+  \draw[orange!85!black, thick] (C2) circle (15);
+  \draw[purple!80!black, thick] (C3) circle (10);
+
+  \draw[dashed, gray!70!black] (C2) -- node[sloped, above] {$\sqrt{10n}$} (C3);
+
+  \draw (0,8) -- (8,8) -- (8,0);
+  \draw (60,0) -- (60,8) -- (68,8) -- (68,0);
+  \draw (0,68) -- (8,68) -- (8,60);
+
+  \foreach \X in {P,Q,R,S,T,U,V,C1,C2,C3}
+    \node[circle, fill, inner sep=1.25pt] at (\X) {};
+
+  \node[below left] at (P) {$P$};
+  \node[above left] at (Q) {$Q$};
+  \node[below right] at (R) {$R$};
+  \node[below] at (S) {$S$};
+  \node[right] at (T) {$T$};
+  \node[left] at (U) {$U$};
+  \node[above right] at (V) {$V$};
+
+  \node[below right] at (C1) {$O_1$};
+  \node[below right] at (C2) {$O_2$};
+  \node[above left] at (C3) {$O_3$};
+
+  \node[green!55!black] at (52,18) {$C_1$};
+  \node[orange!85!black] at (91,22) {$C_2$};
+  \node[purple!80!black] at (23,76) {$C_3$};
+
+  \node[anchor=west] at (82,82) {$n=725$};
+\end{tikzpicture}

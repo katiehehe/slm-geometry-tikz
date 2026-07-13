@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=demo-ship-3" />
 </head>
 <body>
   <div class="app">
@@ -21,6 +21,7 @@
       </div>
       <div class="topbar-actions">
         <button type="button" class="ghost" id="btn-examples" aria-haspopup="true">Examples</button>
+        <button type="button" class="ghost" id="btn-info" aria-haspopup="true">Info</button>
         <button type="button" class="ghost" id="btn-settings" aria-haspopup="true">Settings</button>
         <button type="button" class="ghost" id="btn-new">New</button>
       </div>
@@ -37,7 +38,7 @@
               </svg>
             </button>
             <input type="file" id="file-input" accept="image/*,.pdf,application/pdf" hidden />
-            <textarea id="message" rows="1" placeholder="Describe a geometry scene or edit the figure — Enter to send, Shift+Enter for newline"></textarea>
+            <textarea id="message" rows="1" placeholder="Describe a scene, or paste/drop a screenshot…"></textarea>
             <button type="button" class="send" id="btn-send">Send</button>
           </div>
           <div class="attach-chip hidden" id="attach-chip">
@@ -63,8 +64,6 @@
           <button type="button" class="tab active" role="tab" data-tab="figure" aria-selected="true">Figure</button>
           <button type="button" class="tab" role="tab" data-tab="interactive" aria-selected="false">Interactive</button>
           <button type="button" class="tab" role="tab" data-tab="tikz" aria-selected="false">TikZ</button>
-          <button type="button" class="tab" role="tab" data-tab="evals" aria-selected="false">Evals</button>
-          <button type="button" class="tab" role="tab" data-tab="data" aria-selected="false">Data</button>
         </div>
         <div class="tab-panels">
           <div class="tab-panel active" id="panel-figure" role="tabpanel">
@@ -82,16 +81,6 @@
           <div class="tab-panel" id="panel-tikz" role="tabpanel" hidden>
             <textarea id="tikz-code" class="tikz-code" spellcheck="false" placeholder="TikZ appears here after a figure is drawn."></textarea>
             <button type="button" class="secondary" id="btn-copy-tikz">Copy TikZ</button>
-          </div>
-          <div class="tab-panel" id="panel-evals" role="tabpanel" hidden>
-            <div class="report-scroll" id="evals-root" aria-busy="true">
-              <p class="empty-hint">Loading evaluation results…</p>
-            </div>
-          </div>
-          <div class="tab-panel" id="panel-data" role="tabpanel" hidden>
-            <div class="report-scroll" id="data-root" aria-busy="true">
-              <p class="empty-hint">Loading dataset story…</p>
-            </div>
           </div>
         </div>
       </section>
@@ -111,6 +100,156 @@
     </footer>
   </div>
 
+  <!-- Info: Write-up / Evals / Data (demo narrative + evidence) -->
+  <div class="menu-backdrop hidden" id="info-backdrop"></div>
+  <div class="menu panel report-menu info-menu hidden" id="info-menu" role="dialog" aria-label="Info">
+    <header>
+      <h2>Info</h2>
+      <button type="button" class="icon-btn" id="btn-info-close" aria-label="Close">×</button>
+    </header>
+    <div class="info-subnav" role="tablist" aria-label="Info sections">
+      <button type="button" class="info-tab active" role="tab" data-info-tab="writeup" aria-selected="true">Write-up</button>
+      <button type="button" class="info-tab" role="tab" data-info-tab="evals" aria-selected="false">Evals</button>
+      <button type="button" class="info-tab" role="tab" data-info-tab="data" aria-selected="false">Data</button>
+    </div>
+    <div class="info-panels">
+      <div class="info-panel active" id="info-panel-writeup" role="tabpanel">
+        <nav class="writeup-nav" aria-label="Write-up sections">
+          <a href="#writeup-trained">What you trained</a>
+          <a href="#writeup-goal">The goal of your training</a>
+          <a href="#writeup-eval">Your evaluation methodology</a>
+          <a href="#writeup-results">The results of your training</a>
+        </nav>
+        <div class="report-scroll" id="writeup-root">
+          <div class="report-hero">
+            <h2>Geometry → TikZ: a one-week specialist, end to end</h2>
+            <p>Canonical demo narrative: four rubric beats. Jump the anchors above, or scroll. Heatmaps and dataset charts live under Evals and Data.</p>
+          </div>
+
+          <section class="report-section writeup-section" id="writeup-trained">
+            <h3>What you trained</h3>
+            <p class="writeup-prose">I fine-tuned small Qwen3 bases with LoRA on Modal, with thinking mode off so outputs stay figure-only TikZ. The training arc, in order, is three families of adapters.</p>
+            <p class="writeup-prose">First came the numeric specialists: <code>qwen3-geotikz</code> on Qwen3-0.6B and <code>qwen3-1.7b-geotikz</code> on Qwen3-1.7B, trained so the model invents explicit coordinates from about 5.3k generator-built synthetic scenes. Next came the PGF construction specialist, <code>qwen3-pgf-geotikz</code> on 0.6B: the same style of scenes, but the label is coordinate-free PGF macros so LaTeX does the arithmetic (~2k train). Finally came the illustrators, distilled plus a broader synthetic mix: a 1.7B illustrator, then 4B, then <code>qwen3-illustrator-4b-v2</code> with more paraphrases and harder families. That v2 adapter is what is promoted in the live app.</p>
+            <p class="writeup-prose">The core gate data is built by a small geometry engine: each scene is constructed forward from exact coordinates, then those coordinates are stripped for the model input, so labels are correct by construction. Illustrator data mixes frontier-distilled competition pairs with ground-truth-verified synthetic families. I did not distill a teacher for the core specialist; distillation entered later for the illustrator track.</p>
+          </section>
+
+          <section class="report-section writeup-section" id="writeup-goal">
+            <h3>The goal of your training</h3>
+            <p class="writeup-prose">The goal is a geometry → TikZ specialist: take a scene described only by relationships (no explicit coordinates) and emit one compiling TikZ/PGF figure whose named points are numerically correct. Not “draw something pretty.” Recover the hidden numbers from the geometry.</p>
+            <p class="writeup-prose">That passes the assignment’s litmus: a well-prompted base model, and most frontier models, cannot already do it reliably. So fine-tuning earns its keep. The win is not “smarter than GPT.” It is a tiny, cheap, local specialist that holds a falsifiable behavior every time on the in-domain slice it was trained for.</p>
+            <p class="writeup-prose"><strong>In-domain</strong> means coordinate-free or lightly templated plane-geometry construction scenes that match the specialist’s training vocabulary: triangle centers, feet of altitudes, midpoints, tangents, and similar named constructions. Out of domain means arbitrary free-form AIME or contest word problems, 3D geometry, or other out-of-vocabulary setups. I am not trying to beat frontier on those. In the product, routing prefers the specialist for in-vocab constructions and falls back to frontier out of domain. The win is a reliable in-domain copilot, and honesty about when the small model is the right tool.</p>
+            <p class="writeup-prose">The thesis is simple. You can make a small open model reliably do one narrow thing by controlling its training data, and how you frame the target, compute the answer versus emit the construction, matters more than model size or dataset size. <strong>PGF</strong> is the engine under TikZ; “PGF constructions” means emitting calc and intersection macros so LaTeX does the arithmetic instead of the small model inventing coordinates. That framing pivot is what unlocked reliability.</p>
+          </section>
+
+          <section class="report-section writeup-section" id="writeup-eval">
+            <h3>Your evaluation methodology</h3>
+            <p class="writeup-prose">On top of the core gate from the Behavior Spec, I ran four evaluations.</p>
+            <p class="writeup-prose">The <strong>synthetic gate</strong> requires figure-only TikZ that compiles under tectonic, with named coordinates within about 0.05 of ground truth. Because scenes are built forward from exact coords and then stripped, labels are correct by construction. This is the in-domain definition I am graded on, not open-ended contest illustration.</p>
+            <p class="writeup-prose"><strong>Frontier sweeps</strong> reuse the same numeric 800-grid across twelve models; hard cells are specific constructions plus ugly numbers. Results live in <code>outputs/sweep/</code>.</p>
+            <p class="writeup-prose"><strong>PGF utility</strong> is a 280-item PGF construction eval, plus a thirty-example in-domain utility check versus gpt-5.5 and Opus 4.8.</p>
+            <p class="writeup-prose"><strong>AIME faithfulness</strong> separates compile from correct. Compile is not the same as faithful: a figure can compile and look geometric while still misrepresenting the problem. A vision judge checks whether the drawn construction matches the intended problem scene.</p>
+            <p class="writeup-prose">The twelve-model pass heatmap below shows how hard the numeric grid still is even for frontier models.</p>
+            <figure class="report-figure report-figure--heatmap">
+              <img src="/assets/evals/pass_heatmap.png" alt="Twelve-model pass-rate heatmap on the numeric 800-grid" loading="lazy" />
+              <figcaption>12-model pass heatmap: models × construction difficulty cells</figcaption>
+            </figure>
+          </section>
+
+          <section class="report-section writeup-section" id="writeup-results">
+            <h3>The results of your training</h3>
+            <p class="writeup-prose">The specialist arc on the synthetic gate is the clearest story. The same style of gate moves from near-zero on the base model, through mid-pack numeric fine-tunes, to near-perfect once the target becomes PGF constructions. Foot-of-altitude went from about 2 percent to 98 percent under that pivot; intersection went from 20 percent to 99 percent. Base still scores 0 percent on the PGF eval, so this is a trained behavior, not “the task got easier.”</p>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr><th>Model / target</th><th>Pass rate</th><th>Counts</th><th>Source</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Base Qwen3-0.6B (numeric)</td><td class="num">0.25%</td><td class="num">2 / 800</td><td>eval_base_new.json</td></tr>
+                  <tr><td>Tuned 0.6B (v1 numeric)</td><td class="num hi">46.4%</td><td class="num">371 / 800</td><td>eval_tuned.json</td></tr>
+                  <tr><td>Tuned 1.7B (v1 numeric)</td><td class="num hi">59.8%</td><td class="num">478 / 800</td><td>eval_tuned_1p7b.json</td></tr>
+                  <tr><td>Tuned 0.6B (v2 PGF)</td><td class="num hi">98.9%</td><td class="num">277 / 280</td><td>eval_pgf_tuned.json</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="writeup-prose">On the numeric 800-grid frontier sweep, no model is reliable every time across the whole landscape. Hard cells are specific constructions plus ugly numbers; foot-of-altitude at chain length four to five with irregular numbers pools around 38 to 44 percent across models. Relative to that grid, the tuned specialists beat some frontier models and do not beat others: tuned 1.7B beats gpt-4.1 and gpt-4o; tuned 0.6B beats gpt-4o only. I do not beat claude-sonnet-5, gpt-5.5, or Claude Opus 4.8 on that grid.</p>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr><th>Model</th><th>Pass rate</th><th>Versus specialist</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>claude-sonnet-5</td><td class="num">97.7%</td><td>Specialist does not beat</td></tr>
+                  <tr><td>gpt-5.5</td><td class="num">87.0%</td><td>Specialist does not beat</td></tr>
+                  <tr><td>Claude Opus 4.8</td><td class="num">67.4%</td><td>Specialist does not beat</td></tr>
+                  <tr><td>Tuned 1.7B (ours)</td><td class="num hi">59.8%</td><td>Beats gpt-4.1 and gpt-4o</td></tr>
+                  <tr><td>gpt-4.1</td><td class="num">55.5%</td><td>Beaten by tuned 1.7B</td></tr>
+                  <tr><td>Tuned 0.6B (ours)</td><td class="num hi">46.4%</td><td>Beats gpt-4o only</td></tr>
+                  <tr><td>gpt-4o</td><td class="num">43.9%</td><td>Beaten by both tuned specialists</td></tr>
+                  <tr><td>Base 0.6B</td><td class="num">0.25%</td><td>-</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="writeup-prose">Failures under the numeric target piled onto projection arithmetic: foot-of-altitude was 2 percent on 0.6B and 13 percent on 1.7B, and scaling barely moved it. Same scenes with a coordinate-free PGF label (for example <code>\coordinate (D) at ($(A)!(C)!(B)$);</code>) unlocked the jump above.</p>
+            <p class="writeup-prose">On the thirty-example in-domain utility check, the specialist hits 100 percent pass and 100 percent compile at essentially zero inference cost. It matches gpt-5.5 construction mode on pass, beats both models’ plain modes, and beats Opus hard when Opus tries constructions and compile collapses on hallucinated macros. It wins on cost and dialect; this laptop MPS run is not a latency win.</p>
+            <p class="writeup-prose">Synthetic in-domain was essentially solved. On held-out AIME the narrow PGF specialist was format-locked. Distilling a frontier teacher with a vision judge and a broader synthetic mix produced an illustrator that raises compile coverage a lot while faithfulness stays much lower. The local specialist does not beat frontier on AIME faithfulness; compile coverage is competitive, but compiled is not correct.</p>
+            <div class="report-table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr><th>System</th><th>Compile</th><th>Faithful</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Narrow PGF specialist</td><td class="num">~14%</td><td class="num">0.7%</td></tr>
+                  <tr><td>Illustrator 1.7B</td><td class="num">~69%</td><td class="num">11.3%</td></tr>
+                  <tr><td>Illustrator 4B</td><td class="num">-</td><td class="num">24%</td></tr>
+                  <tr><td>Judge-gated frontier union</td><td class="num">-</td><td class="num">~64-68%</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="writeup-prose">Illustrator 4B v2, with more paraphrases and harder families, hits 98.1 percent on an expanded synthetic gate and 99.1 percent on paraphrase. That adapter is promoted in the live app as <code>qwen3-illustrator-4b-v2</code>.</p>
+            <p class="writeup-prose">The line to remember: on in-domain constructions, target framing unlocked reliability more than model size; on open AIME, I am honest about the faithfulness gap.</p>
+            <p class="writeup-prose">The before-and-after render below is the same style of scene failing on base and passing after the tune.</p>
+            <div class="compare-block" role="group" aria-label="Base fails, tuned passes">
+              <div class="compare-grid">
+                <figure class="compare-card tone-gt">
+                  <header class="compare-head">
+                    <span class="compare-title">Ground truth</span>
+                  </header>
+                  <img src="/assets/evals/before_after/gt.png" alt="Ground-truth geometry figure" loading="lazy" />
+                </figure>
+                <figure class="compare-card tone-fail">
+                  <header class="compare-head">
+                    <span class="compare-title">Base Qwen3-0.6B: Fail</span>
+                    <span class="compare-note">point B off by 10.24</span>
+                  </header>
+                  <img src="/assets/evals/before_after/base.png" alt="Base model incorrect figure" loading="lazy" />
+                </figure>
+                <figure class="compare-card tone-pass">
+                  <header class="compare-head">
+                    <span class="compare-title">Tuned 0.6B + LoRA: Pass</span>
+                  </header>
+                  <img src="/assets/evals/before_after/tuned.png" alt="Tuned model correct figure" loading="lazy" />
+                </figure>
+              </div>
+              <p class="compare-caption">Base fails, tuned passes</p>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="info-panel" id="info-panel-evals" role="tabpanel" hidden>
+        <div class="report-scroll" id="evals-root" aria-busy="true">
+          <p class="empty-hint">Loading evaluation results…</p>
+        </div>
+      </div>
+
+      <div class="info-panel" id="info-panel-data" role="tabpanel" hidden>
+        <div class="report-scroll" id="data-root" aria-busy="true">
+          <p class="empty-hint">Loading dataset story…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings menu -->
   <div class="menu-backdrop hidden" id="settings-backdrop"></div>
   <div class="menu panel hidden" id="settings-menu" role="dialog" aria-label="Settings">
@@ -128,6 +267,6 @@
     </label>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=demo-ship-3"></script>
 </body>
 </html>

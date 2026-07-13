@@ -44,7 +44,8 @@ DEFAULT_ADAPTERS = [
     "qwen3-1.7b-geotikz",    # v1 1.7B numeric
     "qwen3-geotikz",         # v1 0.6B numeric
     "qwen3-illustrator",     # 1.7B AIME illustrator
-    "qwen3-illustrator-4b",  # 4B illustrator (in progress; skipped if absent)
+    "qwen3-illustrator-4b",  # 4B illustrator
+    "qwen3-illustrator-4b-v2",  # 4B illustrator v2 (promoted in the live app)
 ]
 
 # Dataset files -> uploaded flat into the dataset repo. (name in data/, kept as-is on Hub.)
@@ -55,8 +56,9 @@ DEFAULT_DATA_FILES = [
     "eval_pgf.jsonl",
     "golden_set.jsonl",
     "olympiad_eval.jsonl",
-    "illustrator_train_chat.jsonl",
-    "illustrator_syn_eval.jsonl",
+    "illustrator_train_chat_v2.jsonl",
+    "illustrator_syn_eval_v2.jsonl",
+    "illustrator_paraphrase_eval.jsonl",
 ]
 
 MODEL_CARD = ROOT / "cards" / "model_card.md"

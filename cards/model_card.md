@@ -4,6 +4,7 @@ license: apache-2.0
 base_model:
   - Qwen/Qwen3-0.6B
   - Qwen/Qwen3-1.7B
+  - Qwen/Qwen3-4B
 pipeline_tag: text-generation
 language:
   - en
@@ -19,30 +20,31 @@ tags:
   - synthetic-data
 ---
 
-# Spec-First Geometry → TikZ — LoRA adapters (Qwen3)
+# Spec-First Geometry → TikZ: LoRA adapters (Qwen3)
 
 LoRA adapters that fine-tune small **Qwen3** base models to turn a **coordinate-free**
 geometry scene description (relationships only, *no explicit coordinates*) into a **single
-compiling TikZ/PGF figure whose every named point is numerically correct** — recovering the
+compiling TikZ/PGF figure whose every named point is numerically correct**: recovering the
 hidden numbers from the geometry rather than transcribing them.
 
 The behavior is graded by one falsifiable gate: **figure-only AND compiles under
 `tectonic` AND every named coordinate within `atol=0.05` of the ground-truth construction.**
 
 > **Thesis:** you can make a small model *reliably* do one narrow thing by controlling its
-> training data — and *how you frame the target* (compute the answer vs. emit the
+> training data, and *how you frame the target* (compute the answer vs. emit the
 > construction) matters more than model size or dataset size. Full narrative + evidence:
-> `WRITEUP.md` in the source repo.
+> `DEMO_WRITEUP.md` in the source repo.
 
 ## Adapters in this repo
 
 | Adapter (subfolder) | Base model | Target representation | Train data | Headline result |
 | :-- | :-- | :-- | :-- | :-- |
 | `qwen3-pgf-geotikz` | `Qwen/Qwen3-0.6B` | **v2 construction** (coordinate-free PGF; PGF computes the numbers) | 2,050 | **0.989** pass on 280-item PGF eval (base 0.000); foot-of-altitude **0.02 → 0.98** vs v1 |
-| `qwen3-1.7b-geotikz` | `Qwen/Qwen3-1.7B` | v1 numeric (model computes coordinates) | 5,340 | **0.598** pass on 800-item grid (base 0.005) — beats gpt-4.1/gpt-4o/deepseek/haiku on the same grid |
+| `qwen3-1.7b-geotikz` | `Qwen/Qwen3-1.7B` | v1 numeric (model computes coordinates) | 5,340 | **0.598** pass on 800-item grid (base 0.005); beats gpt-4.1/gpt-4o/deepseek/haiku on the same grid |
 | `qwen3-geotikz` | `Qwen/Qwen3-0.6B` | v1 numeric | 5,340 | **0.464** pass on 800-item grid (base 0.003) |
 | `qwen3-illustrator` | `Qwen/Qwen3-1.7B` | construction (distilled + generator breadth) | 3,996 | **93.8%** coordinate-verified on 240 synthetic (base 7.9%); AIME **69.3%** compile / **11.3%** judge-faithful |
 | `qwen3-illustrator-4b` | `Qwen/Qwen3-4B` | construction (distilled + generator breadth) | 3,996 | **97.1%** coordinate-verified on 240 synthetic (base 9.2%); AIME **70.0%** compile / **24.0%** judge-faithful (2.1× the 1.7B) |
+| `qwen3-illustrator-4b-v2` | `Qwen/Qwen3-4B` | construction (more paraphrases + harder families) | 8,852 | **98.1%** on expanded synthetic gate; **99.1%** paraphrase; promoted in the live app |
 
 All adapters are LoRA (`all-linear`), bf16, trained with TRL + PEFT on a Modal GPU.
 `qwen3-*-geotikz`: r=16, α=32, 2 epochs. `qwen3-illustrator*`: r=32, α=64, 2 epochs.
@@ -58,7 +60,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 BASE = "Qwen/Qwen3-0.6B"                 # match the adapter's base model
-REPO = "<user>/qwen3-geotikz"            # this repo
+REPO = "katiehehe/qwen3-geotikz"         # this Hub repo
 ADAPTER = "qwen3-pgf-geotikz"            # subfolder for the v2 specialist
 
 tok = AutoTokenizer.from_pretrained(BASE)
@@ -95,7 +97,7 @@ static-parser coordinate assertion** at `atol=0.05` (`src/geotikz/harness.py`). 
 constructions use a compile-extract grader (`src/geotikz/extract.py`). Base vs. tuned is
 scored on the **identical held-out grid** the frontier models were scored on.
 
-**v1 numeric target — pass rate on the 800-item difficulty grid:**
+**v1 numeric target:** pass rate on the 800-item difficulty grid:**
 
 | Model | Base | Tuned |
 | :-- | --: | --: |
@@ -104,10 +106,10 @@ scored on the **identical held-out grid** the frontier models were scored on.
 
 On that same grid, tuned-1.7B (0.598) beats prompted `gpt-4.1` (0.555), `gpt-4o` (0.439),
 `deepseek-v3.2` (0.270), `claude-haiku-4-5` (0.173). Top-tier frontier (e.g.
-`claude-sonnet-5` 0.977) stays ahead — as expected; the win is *reliable + cheap + local +
+`claude-sonnet-5` 0.977) stays ahead, as expected; the win is *reliable + cheap + local +
 a data-driven jump from 2/800 to 371/800*.
 
-**v2 construction target (`qwen3-pgf-geotikz`) — 280-item PGF eval:**
+**v2 construction target (`qwen3-pgf-geotikz`):** 280-item PGF eval:**
 
 | Metric | Base | Tuned |
 | :-- | --: | --: |
@@ -116,10 +118,10 @@ a data-driven jump from 2/800 to 371/800*.
 | Foot-of-altitude pass | 0.000 | **0.984** |
 | Line-intersection pass | 0.000 | **0.989** |
 
-Same base model + recipe as v1; **only the target representation changed** — the hardest
+Same base model + recipe as v1; **only the target representation changed**. The hardest
 construction went **0.02 → 0.98**.
 
-**`qwen3-illustrator` — held-out synthetic (240, coordinate-verified) and real AIME (150):**
+**`qwen3-illustrator`:** held-out synthetic (240, coordinate-verified) and real AIME (150):**
 
 | Signal | Base 1.7B | Tuned |
 | :-- | --: | --: |
@@ -134,7 +136,7 @@ construction went **0.02 → 0.98**.
   well-formed, compiling, coordinate-free output.
 - **Not intended:** general-purpose diagramming or "solve/illustrate any competition
   problem." On arbitrary hard AIME the illustrator reliably *draws* a figure (69%) but the
-  *correct* one only ~11% — coverage is **reasoning-bound**, not drawing-bound. Use the
+  *correct* one only ~11%. Coverage is **reasoning-bound**, not drawing-bound. Use the
   frontier-fallback routing for the hard tail.
 - **Scope:** planar Euclidean constructions; 3D / heavily combinatorial figures are out of
   scope for the local model.
